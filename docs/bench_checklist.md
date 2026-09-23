@@ -6,7 +6,9 @@ COM/NO contacts; never use continuity mode on an energized circuit. Do not infer
 outlet voltage, charging or welded-contact detection from any software indicator.
 Electrical installation/protection approval is a separate work item.
 
-This checklist was **not performed** during development. Record board revision,
+This checklist is **not complete**. Initial chip detection, flashing and USB status
+checks are recorded in [verification evidence](verification.md#usb-board-check-2026-09-23).
+Electrical/contact checks remain unperformed. Record board revision,
 flash ID, firmware commit, dates, measurements and the exact tests you actually ran.
 Do not mark a step passed from compilation or a simulated GPIO result.
 

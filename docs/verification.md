@@ -1,7 +1,8 @@
 # Verification record
 
-As of **2026-09-23**, before physical commissioning. All automated Tesla/USB inputs
-were synthetic; no credentials or paid requests were needed.
+As of **2026-09-23**, before physical commissioning. Automated Tesla inputs were
+synthetic; no credentials or paid requests were needed. The initial development
+record below is supplemented by the subsequent physical USB check.
 
 ## Passed locally
 
@@ -54,7 +55,11 @@ The build used `IDF_TOOLS_PATH="$PWD/.tools/toolchain"` and a local Python 3.12
 virtual environment at `IDF_PYTHON_ENV_PATH="$PWD/.tools/idf-python"`. Neither
 machine-local configuration nor downloaded tools are committed.
 
-## Not verified / deliberately not performed
+## Initial development limitations
+
+The following records the boundary at the initial build, before the subsequent
+authorized USB work and static-site deployment. See the dated USB update below
+and [hosting record](hosting.md) for later checks.
 
 - Physical board SKU/revision, flash ID, PSRAM detection, GPIO polarity, COM–NO
   continuity, startup/ROM/reset/brownout pulses, watchdog recovery or real ≤100 ms
@@ -73,3 +78,33 @@ Follow [the bench checklist](bench_checklist.md) and [README](../README.md) for 
 owner-operated next steps. No validation server/listening port was started, and
 no background validation process is intentionally left running. SDK/toolchain and
 build outputs remain available for reproducibility.
+
+## USB board check 2026-09-23
+
+The owner confirmed USB-only power with all contactor/mains wiring disconnected.
+Firmware source at checkout `41605b8` was unchanged from the tested application
+artifact above. Native Windows Python 3.12.13, pyserial 3.5 and esptool 4.12.0 were
+used, with the production `device_setup.usb_exchange` helper for protocol checks.
+
+| Check | Observed result |
+| --- | --- |
+| USB/chip detection | Native USB Serial/JTAG; ESP32-S3 QFN56 revision v0.2, 40 MHz crystal, embedded 8 MB PSRAM |
+| Flash identification | Manufacturer `20`, device `4018`, detected 16 MB; quad flash at 3.3 V |
+| Pre-flash preservation | Full 16,777,216-byte flash backup completed to a private, user-restricted local directory; its contents were not published |
+| Firmware write | Bootloader at `0x0`, partition table at `0x8000`, application at `0x30000`; all three esptool hash checks passed |
+| Erasure boundary | Only firmware write sectors were erased; no full-chip erase, explicit NVS erase or eFuse write was issued |
+| USB hello | Protocol 1, board `ESP32-S3-Relay-1CH`, firmware `0.1.0`, `secrets_echoed:false` |
+| Initial USB status | `ready:false`, `commissioned:false`, `disabled:true`, `dry_run:true`, `commanded_on:false`, `fault:false` |
+| Additional reset | esptool chip identification followed by RTS hard reset; hello/status returned the same inhibited state |
+
+The application enforces an initialized PSRAM size of at least 8 MB before reporting
+no critical fault. This passed its startup guard; sustained TLS memory pressure was
+not tested. `ready:false` is expected before credential provisioning. No automatic
+NVS erase recovery was needed. The conservative 8 MB firmware layout is unchanged.
+
+These are software/USB observations, **not physical relay measurements**. There was
+no request to arm, enable physical output or command ON. COM–NO continuity, actual
+GPIO polarity, boot/reset pulses, power removal, watchdog fault injection and
+electrical safety remain unverified. Tesla consent/registration, credential handoff,
+Wi-Fi, local HTTPS and real token refresh also remain unverified at this checkpoint.
+USB handles were closed after each command; no USB monitor was left running.

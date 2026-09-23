@@ -23,9 +23,14 @@ GPIO19/20. RS485, RTC and Bluetooth are not initialized. The SDK owns the octal 
 (GPIO26-37); no application peripheral uses those pins. No six-channel pins or RGB
 code are imported.
 
-**Outstanding:** read the actual chip/flash ID before flashing, inspect assembly
-revision/antenna variant, and measure relay polarity and all boot/reset intervals.
-An 8 MB build setting is not a claim that the physical flash was verified as 8 MB.
+**Board observation (2026-09-23):** native USB detection reported ESP32-S3 revision
+v0.2, embedded 8 MB PSRAM, and 16 MB quad flash (manufacturer `20`, device `4018`).
+The flashed application reported no critical fault, including its PSRAM size guard.
+See [the USB verification record](verification.md#usb-board-check-2026-09-23).
+The flash ID does not establish the exact chip marking shown in the schematic.
+
+**Outstanding:** inspect assembly revision/antenna variant and measure relay polarity
+and all boot/reset intervals. The build still intentionally addresses only 8 MB.
 Firmware cannot constrain GPIO before ROM/bootloader/application initialization.
 
 ## Tesla authentication and onboarding

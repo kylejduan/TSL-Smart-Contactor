@@ -6,8 +6,9 @@ over Wi-Fi and explicitly commands GPIO47 HIGH/LOW. A separate control task keep
 OFF and authorization deadlines independent of network requests.
 
 **Development status:** source, offline tests and ESP32-S3 build are provided.
-No board was flashed, relay energized or live Tesla integration verified during
-development. See [verification evidence](docs/verification.md) and the mandatory
+Firmware has been flashed over native Windows USB; hello/status and post-reset
+inhibited startup passed. Relay/contact measurements and live Tesla integration
+remain unverified. See [verification evidence](docs/verification.md) and the mandatory
 [USB-only bench checklist](docs/bench_checklist.md). It ships **uncommissioned,
 DISABLED and dry-run**. Arming and physical-output enablement are separate USB
 operations; both leave DISABLED selected.
@@ -82,7 +83,8 @@ Replace COM5 with the actual native USB Serial/JTAG port in Device Manager. Linu
 uses the actual `/dev/ttyACM…` port; give your user serial-port permission as needed.
 The helper does not flash devices or automatically retry a token handoff. No secret
 is accepted through a command-line flag. Run it from an interactive terminal.
-Windows operation is implemented but was not tested on physical Windows USB.
+Native Windows USB hello/status and firmware flashing have been tested on a board.
+Credential provisioning and live onboarding remain separate verification steps.
 
 ## One-time Tesla/domain setup
 
