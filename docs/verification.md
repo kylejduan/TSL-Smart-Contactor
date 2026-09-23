@@ -206,3 +206,13 @@ commanded with DISABLED, uncommissioned and dry-run still selected. At 704 secon
 uptime, maximum measured control-loop gap remained 51 ms through router loss and
 reconnection. Authenticated browser login, live Fleet polling/refresh and physical
 relay measurements remain separate checks.
+
+The owner subsequently completed the Windows Current User root-store import of
+the locally generated controller CA. A fresh native Windows Python HTTPS request
+using `ssl.create_default_context()` without an explicit CA-file override returned
+HTTP 200. No hostname/certificate checking was disabled. At 1,081 seconds uptime,
+USB still reported OFF, DISABLED, uncommissioned, dry-run, no critical fault and a
+51 ms maximum control gap. This verifies native-client system trust; the owner's
+Chrome/Bitdefender warning behavior and authenticated login must be checked in
+those applications. The earlier pending noninteractive certificate import was
+terminated before reopening it in an owner-visible window.
