@@ -1,0 +1,17 @@
+{
+  "vin": "SET_DURING_USB_PROVISIONING",
+  "home_lat": null,
+  "home_lon": null,
+  "region": "NA",
+  "enable_m": 100,
+  "disable_m": 200,
+  "max_age_s": 120,
+  "future_s": 30,
+  "lease_s": 900,
+  "sleep_s": 86400,
+  "poll_s": 600,
+  "dwell_s": 30,
+  "daily_cap": 400,
+  "monthly_cap": 12000,
+  "dry_run": true
+}

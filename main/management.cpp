@@ -1,0 +1,182 @@
+#include "storage.hpp"
+#include "esp_https_server.h"
+#include "esp_wifi.h"
+#include "esp_netif.h"
+#include "esp_random.h"
+#include "mbedtls/platform_util.h"
+#include <cstdio>
+#include <cstring>
+#include <ctime>
+namespace app {
+namespace {
+const Profile* profile=nullptr;
+Session session;
+char csrf[65]={};
+extern "C" const unsigned char html_start[] asm("_binary_index_html_start");
+extern "C" const unsigned char html_end[] asm("_binary_index_html_end");
+void headers(httpd_req_t* r) {
+    httpd_resp_set_hdr(r,"Cache-Control","no-store");
+    httpd_resp_set_hdr(r,"X-Content-Type-Options","nosniff");
+    httpd_resp_set_hdr(r,"Content-Security-Policy","default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+    httpd_resp_set_hdr(r,"Referrer-Policy","no-referrer");
+}
+esp_err_t reply(httpd_req_t* r,const char* body,const char* status="200 OK") {
+    headers(r);httpd_resp_set_status(r,status);httpd_resp_set_type(r,"application/json");
+    return httpd_resp_send(r,body,HTTPD_RESP_USE_STRLEN);
+}
+bool same_origin(httpd_req_t* r) {
+    char origin[193]={};
+    return httpd_req_get_hdr_value_str(r,"Origin",origin,sizeof origin)==ESP_OK &&
+        constant_equal(origin,profile->origin);
+}
+bool cookie(httpd_req_t* r,char* out) {
+    char header[192]={};
+    if(httpd_req_get_hdr_value_str(r,"Cookie",header,sizeof header)!=ESP_OK)return false;
+    std::string_view s(header);unsigned found=0;
+    while(!s.empty()) {
+        auto end=s.find(';');auto part=s.substr(0,end);
+        while(!part.empty() && part.front()==' ')part.remove_prefix(1);
+        constexpr std::string_view prefix="__Host-id=";
+        if(part.substr(0,prefix.size())==prefix) {
+            auto value=part.substr(prefix.size());if(value.size()!=64 || ++found!=1)return false;
+            std::memcpy(out,value.data(),64);out[64]=0;
+        }
+        if(end==s.npos)break;
+        s.remove_prefix(end+1);
+    }
+    return found==1;
+}
+bool auth(httpd_req_t* r,bool change) {
+    char id[65]={},supplied[65]={};
+    if(!cookie(r,id))return false;
+    if(!change)return session.authorized(id,now_ms());
+    return same_origin(r) && httpd_req_get_hdr_value_str(r,"X-CSRF-Token",supplied,sizeof supplied)==ESP_OK &&
+        session.change_allowed(id,supplied,now_ms());
+}
+bool body(httpd_req_t* r,char* buffer,size_t capacity) {
+    char type[64]={};
+    if(r->content_len<=0 || size_t(r->content_len)>=capacity ||
+       httpd_req_get_hdr_value_str(r,"Content-Type",type,sizeof type)!=ESP_OK ||
+       std::string_view(type)!="application/json")return false;
+    size_t n=0;Ms deadline=now_ms()+3000;
+    while(n<size_t(r->content_len)) {
+        if(now_ms()>deadline)return false;
+        int got=httpd_req_recv(r,buffer+n,r->content_len-n);
+        if(got<=0)return false;
+        n+=got;
+    }
+    buffer[n]=0;return true;
+}
+void random_hex(char* out) {
+    uint8_t bytes[32];esp_fill_random(bytes,sizeof bytes);
+    for(size_t i=0;i<sizeof bytes;++i)std::snprintf(out+i*2,3,"%02x",bytes[i]);
+    mbedtls_platform_zeroize(bytes,sizeof bytes);
+}
+esp_err_t root(httpd_req_t* r) {
+    headers(r);httpd_resp_set_type(r,"text/html; charset=utf-8");
+    return httpd_resp_send(r,reinterpret_cast<const char*>(html_start),html_end-html_start-1);
+}
+esp_err_t login(httpd_req_t* r) {
+    if(!same_origin(r))return reply(r,"{\"error\":\"origin\"}","403 Forbidden");
+    if(!session.login_allowed(now_ms()))return reply(r,"{\"error\":\"login_throttled\"}","429 Too Many Requests");
+    char input[512]={},password[129]={};Json j;
+    bool ok=body(r,input,sizeof input) && j.parse(input) &&
+        j.string(j.get(0,"password"),password,sizeof password) && verify_password(*profile,password);
+    mbedtls_platform_zeroize(input,sizeof input);mbedtls_platform_zeroize(password,sizeof password);
+    if(!ok) {session.failed_login(now_ms());return reply(r,"{\"error\":\"login_failed\"}","401 Unauthorized");}
+    char id[65]={},header[192]={};random_hex(id);random_hex(csrf);
+    session.establish(id,csrf,now_ms());
+    std::snprintf(header,sizeof header,"__Host-id=%s; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=900",id);
+    httpd_resp_set_hdr(r,"Set-Cookie",header);
+    return reply(r,"{\"ok\":true}");
+}
+esp_err_t status(httpd_req_t* r) {
+    if(!auth(r,false))return reply(r,"{\"error\":\"authentication_required\"}","401 Unauthorized");
+    char output[4096]={};status_json(output,sizeof output);
+    // CSRF lives only in page memory and this authenticated no-store response.
+    httpd_resp_set_hdr(r,"X-CSRF-Token",csrf);
+    return reply(r,output);
+}
+esp_err_t action(httpd_req_t* r) {
+    if(!auth(r,true))return reply(r,"{\"error\":\"authentication_or_csrf\"}","403 Forbidden");
+    char input[2048]={};Json j;
+    if(!body(r,input,sizeof input) || !j.parse(input))return reply(r,"{\"error\":\"invalid_request\"}","400 Bad Request");
+    auto s=snapshot();int op=j.get(0,"action");
+    if(j.equal(op,"off")) {
+        auto epoch=inhibit();s.config.disabled=true;
+        if(!change_config(Change::Disabled,epoch))return reply(r,"{\"error\":\"off_inhibited_persistence_failed\"}","503 Service Unavailable");
+    } else if(provisioning || critical_fault || !s.ready) {
+        return reply(r,"{\"error\":\"usb_recovery_required\"}","409 Conflict");
+    } else if(j.equal(op,"auto")) {
+        auto epoch=inhibit();s.config.disabled=false;
+        if(!change_config(Change::Auto,epoch))return reply(r,"{\"error\":\"persistence_failed\"}","503 Service Unavailable");
+        check_requested=true;
+    } else if(j.equal(op,"timed_on")) {
+        int64_t seconds=3600;
+        if(j.get(0,"seconds")>=0 && !j.integer(j.get(0,"seconds"),seconds))seconds=0;
+        if(seconds<=0 || seconds>28800 || !timed(seconds,s.generation))
+            return reply(r,"{\"error\":\"timed_on_rejected\"}","409 Conflict");
+    } else if(j.equal(op,"check_now")) {
+        static Ms next_manual=0;
+        if(now_ms()<next_manual || network_busy)return reply(r,"{\"error\":\"check_throttled\"}","429 Too Many Requests");
+        next_manual=now_ms()+60000;check_requested=true;
+    } else if(j.equal(op,"settings")) {
+        Config c=s.config;
+        if(!parse_config(j,j.get(0,"settings"),c))return reply(r,"{\"error\":\"invalid_settings\"}","400 Bad Request");
+        // Arming and enabling physical output are USB-only. Web may enter dry-run.
+        if(s.config.dry_run && !c.dry_run)return reply(r,"{\"error\":\"usb_commissioning_required\"}","409 Conflict");
+        auto epoch=inhibit();
+        if(!change_config(Change::Settings,epoch,&c))return reply(r,"{\"error\":\"persistence_failed\"}","503 Service Unavailable");
+    } else if(j.equal(op,"logout"))session.clear();
+    else return reply(r,"{\"error\":\"unknown_action\"}","400 Bad Request");
+    return reply(r,"{\"ok\":true}");
+}
+}
+size_t status_json(char* out,size_t capacity) {
+    auto s=snapshot();auto d=s.decision;
+    wifi_ap_record_t ap{};int rssi=wifi_connected && esp_wifi_sta_get_ap_info(&ap)==ESP_OK ? ap.rssi : 0;
+    auto remaining=s.polling_paused || s.config.disabled ? -1 : std::max<Ms>(0,s.next_poll-now_ms())/1000;
+    long long age=d.last_source_s && s.utc_ok ? time(nullptr)-d.last_source_s : -1;
+    int n=std::snprintf(out,capacity,
+        "{\"mode\":\"%s\",\"commissioned\":%s,\"dry_run\":%s,\"auto_home\":%s,"
+        "\"desired_on\":%s,\"gpio_command\":\"%s commanded\",\"reason\":\"%s\","
+        "\"lease_s\":%lld,\"override_s\":%lld,\"vehicle\":\"%s\",\"location_age_s\":%lld,"
+        "\"distance_m\":%.1f,\"last_success_uptime_s\":%lld,\"next_poll_s\":%lld,"
+        "\"wifi_connected\":%s,\"rssi_dbm\":%d,\"uptime_s\":%lld,\"utc_ready\":%s,"
+        "\"error\":\"%s\",\"reauthorization_needed\":%s,\"poll_busy\":%s,"
+        "\"reserved_today\":[%lu,%lu,%lu],\"reserved_month\":[%lu,%lu,%lu],\"estimated_location_usd\":%.3f,"
+        "\"settings\":{\"vin\":\"%s\",\"home_lat\":%.7f,\"home_lon\":%.7f,\"enable_m\":%lu,\"disable_m\":%lu,"
+        "\"max_age_s\":%lu,\"future_s\":%lu,\"lease_s\":%lu,\"sleep_s\":%lu,\"poll_s\":%lu,\"dwell_s\":%lu,"
+        "\"daily_cap\":%lu,\"monthly_cap\":%lu,\"region\":\"%s\",\"dry_run\":%s}}",
+        s.config.disabled?"DISABLED":(d.timed?"TIMED_ON":"AUTO"),s.config.commissioned?"true":"false",s.config.dry_run?"true":"false",
+        d.auto_home?"true":"false",d.desired?"true":"false",d.commanded?"ON":"OFF",reason_name(d.reason),
+        d.lease_left/1000,d.override_left/1000,vehicle_name(s.vehicle),age,d.distance,s.last_poll/1000,remaining,
+        wifi_connected?"true":"false",rssi,now_ms()/1000,s.utc_ok?"true":"false",error_name(s.error),
+        s.error==Error::Reauthorize || s.error==Error::Authentication || s.error==Error::Permission ?"true":"false",network_busy?"true":"false",
+        (unsigned long)s.budget.daily[0],(unsigned long)s.budget.daily[1],(unsigned long)s.budget.daily[2],
+        (unsigned long)s.budget.monthly[0],(unsigned long)s.budget.monthly[1],(unsigned long)s.budget.monthly[2],s.budget.monthly[1]*0.002,
+        s.config.vin,s.config.home_lat,s.config.home_lon,(unsigned long)s.config.enable_m,(unsigned long)s.config.disable_m,
+        (unsigned long)s.config.max_age_s,(unsigned long)s.config.future_s,(unsigned long)s.config.lease_s,(unsigned long)s.config.sleep_s,
+        (unsigned long)s.config.poll_s,(unsigned long)s.config.dwell_s,(unsigned long)s.config.daily_cap,(unsigned long)s.config.monthly_cap,
+        s.config.region?"EU":"NA",s.config.dry_run?"true":"false");
+    return n>0 && size_t(n)<capacity ? size_t(n) : 0;
+}
+bool start_management(const Profile& p) {
+    profile=&p;
+    httpd_ssl_config_t cfg=HTTPD_SSL_CONFIG_DEFAULT();
+    cfg.httpd.stack_size=24576;cfg.httpd.max_open_sockets=3;cfg.httpd.max_uri_handlers=4;
+    cfg.httpd.recv_wait_timeout=2;cfg.httpd.send_wait_timeout=2;cfg.httpd.lru_purge_enable=true;
+    cfg.servercert=reinterpret_cast<const uint8_t*>(p.certificate);cfg.servercert_len=std::strlen(p.certificate)+1;
+    cfg.prvtkey_pem=reinterpret_cast<const uint8_t*>(p.private_key);cfg.prvtkey_len=std::strlen(p.private_key)+1;
+    httpd_handle_t server=nullptr;
+    if(httpd_ssl_start(&server,&cfg)!=ESP_OK)return false;
+    struct Route {const char* path;httpd_method_t method;esp_err_t (*handler)(httpd_req_t*);};
+    const Route routes[]={{"/",HTTP_GET,root},{"/api/login",HTTP_POST,login},
+        {"/api/status",HTTP_GET,status},{"/api/action",HTTP_POST,action}};
+    for(const auto& r:routes) {
+        httpd_uri_t route={};route.uri=r.path;route.method=r.method;route.handler=r.handler;
+        if(httpd_register_uri_handler(server,&route)!=ESP_OK) {httpd_ssl_stop(server);return false;}
+    }
+    return true;
+}
+}

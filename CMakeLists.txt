@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.22)
+set(COMPONENTS main)
+set(PROJECT_VER "0.1.0")
+include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+project(tsl_smart_contactor VERSION 0.1.0)
+if(NOT "$ENV{IDF_VERSION}" STREQUAL "5.5.2")
+    message(FATAL_ERROR "Use pinned ESP-IDF v5.5.2 (see tools/bootstrap.sh)")
+endif()

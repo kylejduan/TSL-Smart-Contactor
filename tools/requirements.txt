@@ -1,0 +1,5 @@
+# Complete tested helper dependency set; no HTTP client framework is needed.
+cffi==2.1.1
+cryptography==46.0.3
+pycparser==3.0
+pyserial==3.5
