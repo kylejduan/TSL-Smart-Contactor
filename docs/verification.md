@@ -154,3 +154,40 @@ these read-only commands. This is not a provisioning/TLS peak measurement.
 Fresh owner-operated consent and a completed handoff are still required to verify
 the repair end to end. Regional registration need not be repeated. No commissioning,
 physical output enablement or ON request was performed during diagnosis.
+
+## Successful handoff and network startup repair 2026-09-23
+
+The owner's fresh consent and USB handoff completed after the provisioning repair.
+After reboot, physical USB diagnostics confirmed the profile present with valid
+integrity, incomplete marker cleared and a structurally usable token journal.
+This confirms durable credential handoff; it does not establish live refresh or
+location polling. The controller remained DISABLED, uncommissioned and dry-run.
+
+A separate startup fault was then observed. Added first-fault and control-gap
+diagnostics identified `control_deadline` with a 345 ms maximum gap, no failed
+allocation, and a working Wi-Fi connection. Pinning `app_main` to core 1 and the
+setup task to core 0 (where Wi-Fi runs) removed that fault in the observed boot.
+At 58 seconds uptime, Wi-Fi was connected, first-fault was `none`, no allocation
+failure was recorded and the maximum control-loop gap was 51 ms. Neither the
+250 ms fault threshold nor the watchdog timeout was relaxed. This short bench
+observation is not worst-case latency validation or a substitute for load testing.
+
+The firmware now advertises DHCP hostname `smart-contactor` and exposes its station
+MAC and assigned IP through USB diagnostics. A router-assigned address differed
+from the owner's intended reservation/certificate address; the normal browser URL
+therefore remains blocked pending reservation correction. No address was forced
+onto the LAN and no certificate/hostname verification was disabled.
+
+Using the assigned IP only as a TCP connection override, with the intended IP
+retained as the TLS verification identity and HTTP Host, the local CA validated
+the server certificate. GET `/` returned 200 with bytes identical to the embedded
+HTML; unauthenticated GET `/api/status` returned 401 and POST `/api/action` with
+an empty JSON object returned 403. No session/password, authenticated action,
+Tesla request or relay actuation was involved in these checks. Normal browser
+access and authenticated login remain separate pending checks.
+
+ESP-IDF v5.5.2 target build passed; application 924,304 bytes, SHA-256
+`e0abbdc1017eeb8d40e9358ddb66f46ffab8bbe37458070b5db3af28e2cd29cc`.
+Application-only flashing passed the esptool hash check. A private NVS backup was
+retained before firmware changes; saved credentials survived. All 46 native and
+12 Python tests passed again. Physical relay/contactor operation remains untested.

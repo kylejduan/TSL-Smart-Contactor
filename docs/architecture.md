@@ -19,13 +19,19 @@ flowchart LR
     C --> S[Redacted status and bounded RAM events]
 ```
 
-`app_main` remains the sole GPIO owner. It initializes the inactive latch before
+`app_main` remains the sole GPIO owner, pinned to core 1. Wi-Fi and the initial
+setup task run on core 0 so radio startup cannot monopolize the control core.
+It initializes the inactive latch before
 output enable, before creating setup/network tasks. It never waits for USB, DNS,
 HTTPS, PBKDF2 or NVS commits. The 50 ms loop checks policy, handles OFF, writes the
 GPIO, publishes a snapshot, then feeds its own three-second task watchdog. A
 scheduling gap above 250 ms is a sticky local fault. The 100 ms requirement is a
 normal-scheduling deadline; actual worst-case timing and watchdog behavior require
 physical validation, and flash/cache stalls are not proven by compilation.
+USB diagnostics retain the first local fault source, maximum control-loop gap,
+allocation failure size, current/largest free internal heap, Wi-Fi station MAC and
+assigned IP. Only fixed diagnostic labels and non-secret connection metadata are
+returned. The DHCP hostname is `smart-contactor`; this does not add mDNS service.
 
 User OFF atomically inhibits output and advances the generation before persistence.
 A single configuration writer commits OFF/AUTO/settings outside the control task.

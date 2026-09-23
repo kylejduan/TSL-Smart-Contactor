@@ -4,6 +4,8 @@
 #include "esp_random.h"
 #include "esp_system.h"
 #include "esp_heap_caps.h"
+#include "esp_netif.h"
+#include "esp_mac.h"
 #include "mbedtls/platform_util.h"
 #include <cstring>
 #include <cstdio>
@@ -22,15 +24,25 @@ void diagnostics() {
     uint8_t pending=0;
     auto marker=storage().read("provisioning",&pending,sizeof pending);
     TokenJournal journal(storage());auto token=journal.load();
-    char b[512]={};
+    esp_netif_ip_info_t ip={};
+    auto* netif=esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    if(netif)esp_netif_get_ip_info(netif,&ip);
+    auto cause=fault_source.load();
+    uint8_t mac[6]={};esp_read_mac(mac,ESP_MAC_WIFI_STA);
+    char b[768]={};
     std::snprintf(b,sizeof b,
         "{\"profile_record\":\"%s\",\"profile_integrity\":%s,\"provision_marker\":\"%s\",\"provision_pending\":%s,"
         "\"token_state\":\"%s\",\"provision_stage\":\"%s\",\"uptime_s\":%lld,\"reset_reason\":%d,"
-        "\"usb_stack_min_bytes\":%u,\"internal_heap_free\":%u}",
+        "\"usb_stack_min_bytes\":%u,\"internal_heap_free\":%u,\"internal_heap_largest\":%u,"
+        "\"fault_source\":\"%s\",\"failed_allocation_bytes\":%u,\"control_max_gap_ms\":%u,"
+        "\"wifi_connected\":%s,\"ip\":\"" IPSTR "\",\"station_mac\":\"%02x:%02x:%02x:%02x:%02x:%02x\"}",
         read_name(raw),valid?"true":"false",read_name(marker),pending?"true":"false",
         token==Error::None?"usable":token==Error::Reauthorize?"missing_or_reauthorize":"error",
         provision_stage,static_cast<long long>(now_ms()/1000),int(esp_reset_reason()),
-        unsigned(uxTaskGetStackHighWaterMark(nullptr)),unsigned(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)));
+        unsigned(uxTaskGetStackHighWaterMark(nullptr)),unsigned(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
+        unsigned(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)),cause?cause:"none",
+        unsigned(failed_allocation_bytes.load()),unsigned(control_max_gap_ms.load()),
+        wifi_connected?"true":"false",IP2STR(&ip.ip),mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
     mbedtls_platform_zeroize(&journal,sizeof journal);
     usb_serial_jtag_write_bytes(b,std::strlen(b),pdMS_TO_TICKS(1000));
     usb_serial_jtag_write_bytes("\n",1,pdMS_TO_TICKS(1000));
@@ -87,7 +99,7 @@ bool provision(const Json& j) {
         pending=0;
         if(ok) {provision_stage="completion_commit";ok=storage().write("provisioning",&pending,sizeof pending);}
         mbedtls_platform_zeroize(&journal,sizeof journal);
-        if(!ok)critical_fault=true;
+        if(!ok)fail("provision_write");
     }
     mbedtls_platform_zeroize(pw,sizeof pw);mbedtls_platform_zeroize(refresh,sizeof refresh);
     mbedtls_platform_zeroize(&next,sizeof next);
@@ -153,7 +165,7 @@ void process(const char* input) {
 }
 void usb_task(void*) {
     usb_serial_jtag_driver_config_t c={.tx_buffer_size=2048,.rx_buffer_size=2048};
-    if(usb_serial_jtag_driver_install(&c)!=ESP_OK) {critical_fault=true;vTaskDelete(nullptr);return;}
+    if(usb_serial_jtag_driver_install(&c)!=ESP_OK) {fail("usb_driver");vTaskDelete(nullptr);return;}
     static char line[16385];size_t length=0;bool discard=false;Ms started=0;
     while(true) {
         char ch;int n=usb_serial_jtag_read_bytes(&ch,1,pdMS_TO_TICKS(100));

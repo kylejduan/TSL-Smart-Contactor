@@ -22,7 +22,7 @@ void worker(void* context) {
     RuntimeIO io;FleetClient client(storage(),io,profile.client_id);
     Scheduler scheduler;uint64_t sequence=0;
     auto initial=client.initialize();
-    if(initial==Error::Storage)critical_fault=true;
+    if(initial==Error::Storage)fail("tesla_journal_load");
     Ms last_success=0,auth_retry_after=0;Vehicle vehicle=Vehicle::Unknown;Error error=initial;
     while(true) {
         auto s=snapshot();
@@ -37,7 +37,7 @@ void worker(void* context) {
                 if(poll) {
                     scheduler.begin(now_ms());error=client.poll(s.config,s.generation,o);
                 } else error=client.refresh(s.config);
-                if(error==Error::Storage)critical_fault=true;
+                if(error==Error::Storage)fail("tesla_storage");
                 if(error==Error::Reauthorize || error==Error::Authentication || error==Error::Permission) {
                     o.kind=Evidence::Revoked;submit(o);
                 } else if(error==Error::None && poll) {
@@ -56,6 +56,6 @@ void worker(void* context) {
 }
 }
 void start_tesla(const Profile& p) {
-    if(xTaskCreate(worker,"tesla_worker",65536,const_cast<Profile*>(&p),3,nullptr)!=pdPASS)critical_fault=true;
+    if(xTaskCreate(worker,"tesla_worker",65536,const_cast<Profile*>(&p),3,nullptr)!=pdPASS)fail("tesla_task");
 }
 }

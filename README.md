@@ -101,6 +101,10 @@ If provisioning loses its acknowledgement, do not resend tokens automatically.
 Use `python tools/onboard.py usb --port COM5 status` and then `diagnostics`. The
 latter reports only record presence/integrity, the incomplete-provisioning marker,
 token usability, the last provisioning stage, reset reason and memory headroom.
+It also reports the first local fault source, maximum control-loop gap and Wi-Fi
+station MAC/assigned IP. Match that MAC in the router's DHCP reservation. The board
+advertises DHCP hostname `smart-contactor`; its certificate must match the actual
+reserved address used in the browser. The hostname alone does not configure DNS.
 It never returns the profile or tokens. An incomplete marker inhibits output across
 reboot. Preserve NVS; complete an explicit new handoff if recovery needs new consent.
 Once regional registration succeeded, answer **no** to repeating registration.

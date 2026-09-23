@@ -62,14 +62,14 @@ void scan_unprovisioned_wifi(char* output,size_t capacity) {
         return esp_wifi_scan_get_ap_records(&count,records)==ESP_OK;
     }();
     if(started) {
-        if(esp_wifi_scan_stop()!=ESP_OK)critical_fault=true;
-        if(esp_wifi_clear_ap_list()!=ESP_OK)critical_fault=true;
-        if(esp_wifi_stop()!=ESP_OK)critical_fault=true;
+        if(esp_wifi_scan_stop()!=ESP_OK)fail("scan_cleanup");
+        if(esp_wifi_clear_ap_list()!=ESP_OK)fail("scan_cleanup");
+        if(esp_wifi_stop()!=ESP_OK)fail("scan_cleanup");
     }
-    if(registered && esp_event_handler_instance_unregister(WIFI_EVENT,WIFI_EVENT_SCAN_DONE,handler)!=ESP_OK)critical_fault=true;
-    if(initialized && esp_wifi_deinit()!=ESP_OK)critical_fault=true;
+    if(registered && esp_event_handler_instance_unregister(WIFI_EVENT,WIFI_EVENT_SCAN_DONE,handler)!=ESP_OK)fail("scan_cleanup");
+    if(initialized && esp_wifi_deinit()!=ESP_OK)fail("scan_cleanup");
     if(netif)esp_netif_destroy_default_wifi(netif);
-    if(esp_event_loop_delete_default()!=ESP_OK)critical_fault=true;
+    if(esp_event_loop_delete_default()!=ESP_OK)fail("scan_cleanup");
     if(!ok || critical_fault)return;
     size_t used=0;
     auto append=[&](const char* format,auto... args) {
