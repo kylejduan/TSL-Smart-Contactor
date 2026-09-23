@@ -1,15 +1,18 @@
 """Offline only: fake Tesla/USB, temporary synthetic keys, no live HTTP requests."""
 import datetime as dt
+import io
 import json
 import os
 from pathlib import Path
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import tesla_setup as tesla
 import device_setup as device
+import onboard
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 
@@ -67,6 +70,31 @@ class OAuthTests(unittest.TestCase):
             result = tesla.vehicles("synthetic", "NA")
         self.assertEqual(len(result), 2)
         self.assertTrue(fake.call_args_list[1].args[0].startswith(tesla.REGIONS["NA"]))
+
+class ScanTests(unittest.TestCase):
+    def test_usb_scan_displays_untrusted_ssids_without_terminal_escapes(self):
+        ssid = b'synthetic"\\\n\x1b[31m\xff'
+        response = {"ok": True, "truncated": False, "networks": [
+            {"ssid_hex": ssid.hex(), "rssi": -61, "channel": 6, "authmode": 3}]}
+        output = io.StringIO()
+        with patch.object(onboard, "usb_exchange", return_value=response) as exchange, \
+             patch.object(onboard, "hidden") as hidden, patch("sys.stdout", output):
+            onboard.usb(SimpleNamespace(command="wifi_scan", port="synthetic"))
+        exchange.assert_called_once_with("synthetic", {"op": "wifi_scan"})
+        hidden.assert_not_called()
+        self.assertNotIn("\x1b", output.getvalue())
+        parsed = json.loads(output.getvalue())
+        self.assertEqual(parsed["networks"][0]["ssid"], ssid.decode("utf-8", errors="backslashreplace"))
+        self.assertEqual(parsed["networks"][0]["ssid_hex"], ssid.hex())
+
+    def test_unavailable_scan_does_not_retry_or_request_password(self):
+        output = io.StringIO()
+        with patch.object(onboard, "usb_exchange", return_value={"ok": False, "error": "scan_unavailable"}) as exchange, \
+             patch.object(onboard, "hidden") as hidden, patch("sys.stdout", output):
+            onboard.usb(SimpleNamespace(command="wifi_scan", port="synthetic"))
+        self.assertEqual(exchange.call_count, 1)
+        hidden.assert_not_called()
+        self.assertFalse(json.loads(output.getvalue())["ok"])
 
 class FilesTests(unittest.TestCase):
     def test_generated_public_tree_contains_no_private_keys(self):
