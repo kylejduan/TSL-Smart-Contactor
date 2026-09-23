@@ -29,6 +29,9 @@ struct Snapshot {
 };
 extern std::atomic<bool> critical_fault, wifi_connected, utc_synced, provisioning, network_busy;
 extern std::atomic<bool> check_requested;
+extern std::atomic<const char*> fault_source;
+extern std::atomic<uint32_t> failed_allocation_bytes, control_max_gap_ms;
+void fail(const char* static_reason);
 Ms now_ms();
 Snapshot snapshot();
 uint32_t inhibit(); // Immediate OFF + invalidates in-flight and queued requests

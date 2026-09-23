@@ -28,25 +28,26 @@ static void reconnect_task(void*) {
     }
 }
 void start_wifi(const Profile& p) {
-    if(esp_netif_init()!=ESP_OK || esp_event_loop_create_default()!=ESP_OK ||
-       !esp_netif_create_default_wifi_sta()) {critical_fault=true;return;}
+    if(esp_netif_init()!=ESP_OK || esp_event_loop_create_default()!=ESP_OK) {fail("network_init_or_allocation");return;}
+    auto* netif=esp_netif_create_default_wifi_sta();
+    if(!netif || esp_netif_set_hostname(netif,"smart-contactor")!=ESP_OK) {fail("network_hostname");return;}
     wifi_init_config_t init=WIFI_INIT_CONFIG_DEFAULT();
     if(esp_wifi_init(&init)!=ESP_OK || esp_wifi_set_storage(WIFI_STORAGE_RAM)!=ESP_OK ||
        esp_event_handler_register(WIFI_EVENT,ESP_EVENT_ANY_ID,wifi_event,nullptr)!=ESP_OK ||
-       esp_event_handler_register(IP_EVENT,IP_EVENT_STA_GOT_IP,wifi_event,nullptr)!=ESP_OK) {critical_fault=true;return;}
+       esp_event_handler_register(IP_EVENT,IP_EVENT_STA_GOT_IP,wifi_event,nullptr)!=ESP_OK) {fail("network_init_or_allocation");return;}
     wifi_config_t cfg={};
     std::memcpy(cfg.sta.ssid,p.ssid,std::strlen(p.ssid));
     std::memcpy(cfg.sta.password,p.wifi_password,std::strlen(p.wifi_password));
     cfg.sta.threshold.authmode=WIFI_AUTH_WPA2_PSK;
     cfg.sta.pmf_cfg.capable=true;
     if(esp_wifi_set_mode(WIFI_MODE_STA)!=ESP_OK || esp_wifi_set_config(WIFI_IF_STA,&cfg)!=ESP_OK ||
-       esp_wifi_start()!=ESP_OK)critical_fault=true;
+       esp_wifi_start()!=ESP_OK)fail("network_init_or_allocation");
     mbedtls_platform_zeroize(&cfg,sizeof cfg);
     esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
     esp_sntp_setservername(0,"time.cloudflare.com");
     esp_sntp_setservername(1,"pool.ntp.org");
     esp_sntp_set_time_sync_notification_cb(sync_callback);esp_sntp_init();
-    if(xTaskCreate(reconnect_task,"wifi_retry",3072,nullptr,2,nullptr)!=pdPASS)critical_fault=true;
+    if(xTaskCreate(reconnect_task,"wifi_retry",3072,nullptr,2,nullptr)!=pdPASS)fail("network_init_or_allocation");
 }
 void request(Endpoint endpoint,const Config& cfg,const char* access,const char* form,HttpResult& r) {
     if(!snapshot().utc_ok) {r.error=Error::Clock;return;}
@@ -66,7 +67,7 @@ void request(Endpoint endpoint,const Config& cfg,const char* access,const char* 
     esp_tls_cfg_t config={};config.crt_bundle_attach=esp_crt_bundle_attach;
     config.non_block=true;config.timeout_ms=10000;
     auto* tls=esp_tls_init();
-    if(!tls) {critical_fault=true;r.error=Error::Storage;return;}
+    if(!tls) {fail("network_init_or_allocation");r.error=Error::Storage;return;}
     const Ms deadline=now_ms()+20000,connect_deadline=now_ms()+10000;
     int connected=0;
     do {

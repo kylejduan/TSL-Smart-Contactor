@@ -87,7 +87,7 @@ bool change_config(Change change,uint32_t epoch,const Config* settings) {
         // any just-saved AUTO with DISABLED. The newer request then applies itself.
         p.config.disabled=true;ok=save_profile(p);
     }
-    if(!ok)critical_fault=true;
+    if(!ok)fail("configuration_write");
     Config c=p.config;mbedtls_platform_zeroize(&p,sizeof p);
     if(ok && !superseded)ok=configure(c,epoch);
     xSemaphoreGive(config_mutex);return ok && !superseded;
