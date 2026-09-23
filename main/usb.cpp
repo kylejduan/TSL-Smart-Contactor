@@ -3,11 +3,38 @@
 #include "driver/usb_serial_jtag.h"
 #include "esp_random.h"
 #include "esp_system.h"
+#include "esp_heap_caps.h"
 #include "mbedtls/platform_util.h"
 #include <cstring>
 #include <cstdio>
 namespace app {
 namespace {
+const char* provision_stage="idle";
+const char* read_name(ReadResult r) {
+    return r==ReadResult::Ok ? "present" : r==ReadResult::Missing ? "missing" : "error";
+}
+void diagnostics() {
+    // Metadata only. Never emit credentials, profile fields or token contents.
+    static Profile p;
+    auto raw=storage().read("profile",&p,sizeof p);
+    bool valid=raw==ReadResult::Ok && intact(p) && valid_config(p.config);
+    mbedtls_platform_zeroize(&p,sizeof p);
+    uint8_t pending=0;
+    auto marker=storage().read("provisioning",&pending,sizeof pending);
+    TokenJournal journal(storage());auto token=journal.load();
+    char b[512]={};
+    std::snprintf(b,sizeof b,
+        "{\"profile_record\":\"%s\",\"profile_integrity\":%s,\"provision_marker\":\"%s\",\"provision_pending\":%s,"
+        "\"token_state\":\"%s\",\"provision_stage\":\"%s\",\"uptime_s\":%lld,\"reset_reason\":%d,"
+        "\"usb_stack_min_bytes\":%u,\"internal_heap_free\":%u}",
+        read_name(raw),valid?"true":"false",read_name(marker),pending?"true":"false",
+        token==Error::None?"usable":token==Error::Reauthorize?"missing_or_reauthorize":"error",
+        provision_stage,static_cast<long long>(now_ms()/1000),int(esp_reset_reason()),
+        unsigned(uxTaskGetStackHighWaterMark(nullptr)),unsigned(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)));
+    mbedtls_platform_zeroize(&journal,sizeof journal);
+    usb_serial_jtag_write_bytes(b,std::strlen(b),pdMS_TO_TICKS(1000));
+    usb_serial_jtag_write_bytes("\n",1,pdMS_TO_TICKS(1000));
+}
 void send(const char* message) {
     usb_serial_jtag_write_bytes(message,std::strlen(message),pdMS_TO_TICKS(1000));
     usb_serial_jtag_write_bytes("\n",1,pdMS_TO_TICKS(1000));
@@ -29,6 +56,7 @@ bool stop_network() {
 }
 bool provision(const Json& j) {
     if(!j.equal(j.get(0,"confirmation"),"REPLACE_CONFIG_USB_ONLY_MAINS_DISCONNECTED"))return false;
+    provision_stage="stopping_network";
     if(!stop_network())return false;
     static Profile next;
     next=Profile{};
@@ -45,26 +73,37 @@ bool provision(const Json& j) {
         j.string(j.get(p,"origin"),next.origin,sizeof next.origin);
     next.config.commissioned=false;next.config.disabled=true;next.config.dry_run=true;
     esp_fill_random(next.salt,sizeof next.salt);
-    ok=ok && password_hash(pw,next.salt,next.password_hash) && valid_profile(next);
+    provision_stage="password_hash";
+    ok=ok && password_hash(pw,next.salt,next.password_hash);
+    provision_stage="profile_validation";
+    ok=ok && valid_profile(next);
     if(ok) {
         uint8_t pending=1;
+        provision_stage="pending_commit";
         ok=storage().write("provisioning",&pending,sizeof pending);
         TokenJournal journal(storage());
-        ok=ok && journal.provision(refresh)==Error::None && save_profile(next);
-        pending=0;ok=ok && storage().write("provisioning",&pending,sizeof pending);
+        if(ok) {provision_stage="token_commit";ok=journal.provision(refresh)==Error::None;}
+        if(ok) {provision_stage="profile_commit";ok=save_profile(next);}
+        pending=0;
+        if(ok) {provision_stage="completion_commit";ok=storage().write("provisioning",&pending,sizeof pending);}
+        mbedtls_platform_zeroize(&journal,sizeof journal);
         if(!ok)critical_fault=true;
     }
     mbedtls_platform_zeroize(pw,sizeof pw);mbedtls_platform_zeroize(refresh,sizeof refresh);
     mbedtls_platform_zeroize(&next,sizeof next);
+    if(ok)provision_stage="complete";
     return ok;
 }
 void process(const char* input) {
-    Json j;
+    // The USB task serializes requests. Keep the 6 KiB parser off its call stack:
+    // token/NVS operations need their own stack while this parse remains alive.
+    static Json j;
     if(!j.parse(input)) {send("{\"ok\":false,\"error\":\"invalid_json\"}");return;}
     int op=j.get(0,"op");
     if(j.equal(op,"hello")) {
         send("{\"protocol\":1,\"board\":\"ESP32-S3-Relay-1CH\",\"firmware\":\"0.1.0\",\"secrets_echoed\":false}");return;
     }
+    if(j.equal(op,"diagnostics")) {diagnostics();return;}
     if(j.equal(op,"status")) {
         auto s=snapshot();char b[256]={};
         std::snprintf(b,sizeof b,"{\"ready\":%s,\"commissioned\":%s,\"disabled\":%s,\"dry_run\":%s,\"commanded_on\":%s,\"fault\":%s}",

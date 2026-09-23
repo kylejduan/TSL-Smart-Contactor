@@ -97,6 +97,14 @@ most eight seconds for completion and is limited to one attempt per 15 seconds.
 It is rejected once a profile exists, during provisioning, or on a local fault;
 it does not interrupt a configured device's Wi-Fi. The ESP32-S3 cannot use 5/6 GHz.
 
+If provisioning loses its acknowledgement, do not resend tokens automatically.
+Use `python tools/onboard.py usb --port COM5 status` and then `diagnostics`. The
+latter reports only record presence/integrity, the incomplete-provisioning marker,
+token usability, the last provisioning stage, reset reason and memory headroom.
+It never returns the profile or tokens. An incomplete marker inhibits output across
+reboot. Preserve NVS; complete an explicit new handoff if recovery needs new consent.
+Once regional registration succeeded, answer **no** to repeating registration.
+
 ## One-time Tesla/domain setup
 
 Set up public DNS and HTTPS **before** submitting the application's domain fields.

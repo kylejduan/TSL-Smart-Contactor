@@ -121,3 +121,36 @@ The 46 native tests and 12 Python tests passed, including synthetic SSID termina
 escaping and no-retry handling. Scan timeout/fault injection remain untested on
 hardware. A subsequent credential handoff timed out and the board reported a local
 fault; that separate provisioning failure requires diagnosis before commissioning.
+
+## Provisioning recovery 2026-09-23
+
+The owner reported successful regional registration, OAuth consent and vehicle
+selection, followed by a missing USB acknowledgement. Subsequent physical USB
+status showed `ready:false` and a critical fault with OFF commanded. Read-only
+storage diagnostics after an application-only repair showed the incomplete
+provisioning marker present, no profile record and no usable token journal.
+Existing NVS was backed up privately before repair and was not erased or cleared.
+
+The pre-repair target disassembly showed a 15,200-byte USB dispatch frame and an
+8,320-byte nested token-provision frame, before deeper NVS calls, against a
+24,576-byte USB stack. This establishes inadequate headroom and is consistent
+with the observed interruption at token storage; the original reset reason was
+not captured. The serialized USB parser now uses static storage, token journal
+save seals its caller's candidate by reference instead of copying another full
+record, and the USB stack is 32,768 bytes. The last provisioning stage and stack
+watermark are available through metadata-only `usb diagnostics`. The helper now
+allows 90 seconds for the complete handoff without automatic retry.
+
+The 46 native tests, including token journal failure/recovery, and 12 Python tests
+passed. ESP-IDF v5.5.2 rebuilt the target successfully: application 923,168 bytes,
+SHA-256 `c0e40c063b26b930cfd765c499a442cadc829f8a33a1b17d0cb283c578049e22`.
+The application-only flash hash check passed. A 14,000-byte synthetic padding
+field on a read-only hello request received a valid reply in 0.06 seconds during
+repair validation; no synthetic token/profile was installed. After the final
+stack-size update, USB status/diagnostics still showed the preserved incomplete
+marker and OFF inhibition, with 26,416 bytes of observed USB stack headroom during
+these read-only commands. This is not a provisioning/TLS peak measurement.
+
+Fresh owner-operated consent and a completed handoff are still required to verify
+the repair end to end. Regional registration need not be repeated. No commissioning,
+physical output enablement or ON request was performed during diagnosis.

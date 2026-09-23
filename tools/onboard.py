@@ -82,7 +82,8 @@ def run(root, port):
         "private_key": (root / "private" / "device-key.pem").read_text(),
         "origin": "https://" + meta["host"],
     }}
-    result = usb_exchange(port, payload)
+    print("Writing configuration over USB; allow up to 90 seconds for validation and durable storage.")
+    result = usb_exchange(port, payload, timeout=90)
     if result.get("committed") is not True:
         raise SetupError("Device did not confirm durable provisioning; output remains inhibited. Recover via USB.")
     tokens.clear();payload.clear();admin = wifi = ""
@@ -92,7 +93,7 @@ def run(root, port):
 
 def usb(args):
     request = {"op": args.command}
-    if args.command not in {"hello", "status", "wifi_scan"}:
+    if args.command not in {"hello", "status", "diagnostics", "wifi_scan"}:
         request["password"] = hidden("Local administrator password: ")
     confirmations = {
         "arm": "USB_BENCH_POLARITY_AND_STARTUP_VERIFIED",
@@ -125,7 +126,7 @@ def main():
     runtime.add_argument("--port", required=True)
     command = commands.add_parser("usb", help="Explicit USB management, no flashing")
     command.add_argument("--port", required=True)
-    command.add_argument("command", choices=["hello", "status", "wifi_scan", "off", "auto", "timed_on", "arm", "enable_output", "reboot"])
+    command.add_argument("command", choices=["hello", "status", "diagnostics", "wifi_scan", "off", "auto", "timed_on", "arm", "enable_output", "reboot"])
     command.add_argument("--seconds", type=int, default=3600)
     args = parser.parse_args()
     try:
