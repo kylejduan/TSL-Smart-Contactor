@@ -146,6 +146,9 @@ password hashes or private keys. Errors are fixed enums, not upstream bodies.
 Status and USB diagnostics also retain the last Fleet endpoint, HTTP status and
 a fixed parse-failure label. Missing/null GPS source time is distinguished from
 invalid timestamp units and missing coordinates; no response values are logged.
+Whole GPS seconds encoded with decimal/exponent notation retain the same source
+value and lease deadline. Successful normalization reports `gps_as_of_numeric_seconds`;
+fractional values, millisecond-scale values and non-numeric types remain rejected.
 A 16-entry RAM decision log is bounded and volatile. No unbounded flash logs,
 recovery AP, BLE, RS485 controls, OTA or factory services are enabled.
 

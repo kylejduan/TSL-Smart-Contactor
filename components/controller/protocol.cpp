@@ -57,8 +57,19 @@ Error parse_vehicle(std::string_view body, const char* vin, bool location, Obser
     int source=j.get(d,"gps_as_of");
     if(source<0)return reject("gps_as_of_missing");
     if(j.is(source,Json::Type::Null))return reject("gps_as_of_null");
-    if(!j.integer(source,o.source_s) || o.source_s<1577836800LL || o.source_s>4102444800LL)
-        return reject("gps_as_of_invalid_seconds");
+    double seconds=0;
+    if(!j.number(source,seconds))return reject("gps_as_of_not_numeric");
+    if(seconds>=1577836800000.0 && seconds<=4102444800000.0)
+        return reject("gps_as_of_millisecond_scale");
+    if(seconds<1577836800.0 || seconds>4102444800.0)
+        return reject("gps_as_of_out_of_range");
+    if(std::floor(seconds)!=seconds)return reject("gps_as_of_fractional_seconds");
+    // JSON numbers need not use digit-only notation. These bounded whole seconds
+    // are exactly representable; never guess units or round a fractional fix up.
+    if(!j.integer(source,o.source_s)) {
+        o.source_s=static_cast<int64_t>(seconds);
+        if(detail)*detail="gps_as_of_numeric_seconds";
+    }
     // No documented accuracy field. Do not substitute drive_state.timestamp,
     // native coordinates, or a synthetic location_data response object.
     o.kind=Evidence::Location;

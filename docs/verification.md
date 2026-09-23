@@ -280,3 +280,25 @@ ESP-IDF v5.5.2 build passed: application **927,008 bytes**, SHA-256
 Application-only flash hash verification passed. At 37 seconds after that reboot,
 USB verified DNS/UTC ready, preserved profile/token storage, no fault and a 50 ms
 maximum control gap, with DISABLED, uncommissioned, dry-run and OFF retained.
+
+The diagnostic retry reached `location`, HTTP 200, with
+`gps_as_of_invalid_seconds`. Its final USB OFF was acknowledged; no critical fault
+occurred, and maximum control gap was 65 ms. This narrows the rejection to the
+GPS source value: JSON parsing, selected VIN, drive-state object and coordinate
+validation had passed. The old diagnostic did not distinguish numeric notation,
+units, fractional values or a wrong JSON type.
+
+Review found that the GPS parser reused a digit-only integer decoder, which
+rejected valid whole-second JSON values written with `.0` or exponent notation.
+The GPS-specific parser now accepts finite integral numbers within the original
+seconds range, retaining the exact whole-second source value. It does not change
+the lossless integer parser used for configuration or infer milliseconds. Failure
+details now distinguish non-numeric values, fractions, millisecond-scale values
+and unsupported epochs. Synthetic tests verify equivalent numeric representations
+expire the HOME lease at exactly 900 seconds, with no extension.
+
+All 49 native tests with sanitizers and 12 Python tests passed. ESP-IDF v5.5.2
+build passed: application 927,248 bytes, SHA-256
+`9384e5ffe038b9264fc8278477a577171fa036c97be30ea9b9fb06e0e1661532`.
+Application-only flash hash verification passed. Acceptance of live GPS remains
+pending; the HTTP 200 result alone does not establish source-time compatibility.

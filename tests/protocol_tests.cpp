@@ -14,7 +14,7 @@ TEST(missing_null_invalid_and_wrong_units_fail_closed) {
     for(auto fields:{"\"latitude\":null,\"longitude\":0,\"gps_as_of\":1800000000",
         "\"latitude\":0,\"gps_as_of\":1800000000", "\"latitude\":91,\"longitude\":0,\"gps_as_of\":1800000000",
         "\"latitude\":0,\"longitude\":0,\"gps_as_of\":1800000000000",
-        "\"latitude\":0,\"longitude\":0,\"gps_as_of\":1800000000.0",
+        "\"latitude\":0,\"longitude\":0,\"gps_as_of\":1800000000.5",
         "\"latitude\":\"0\",\"longitude\":0,\"gps_as_of\":1800000000"}) {
         Observation o;REQUIRE(parse_vehicle(body(fields),config().vin,true,o)==Error::Malformed);
     }
@@ -30,7 +30,10 @@ TEST(location_diagnostics_distinguish_missing_null_and_invalid_source_without_va
     const std::string coordinates="\"latitude\":12.3456,\"longitude\":65.4321";
     for(const auto& item:{std::pair{"","gps_as_of_missing"},
         {",\"gps_as_of\":null","gps_as_of_null"},
-        {",\"gps_as_of\":1800000000000","gps_as_of_invalid_seconds"}}) {
+        {",\"gps_as_of\":1800000000000","gps_as_of_millisecond_scale"},
+        {",\"gps_as_of\":0","gps_as_of_out_of_range"},
+        {",\"gps_as_of\":\"1800000000\"","gps_as_of_not_numeric"},
+        {",\"gps_as_of\":1800000000.5","gps_as_of_fractional_seconds"}}) {
         Observation o;const char* detail=nullptr;
         REQUIRE(parse_vehicle(body(coordinates+item.first),config().vin,true,o,&detail)==Error::Malformed);
         REQUIRE(std::string(detail)==item.second);REQUIRE(o.kind!=Evidence::Location);
@@ -40,6 +43,16 @@ TEST(location_diagnostics_distinguish_missing_null_and_invalid_source_without_va
     REQUIRE(std::string(detail)=="response_not_object");
     REQUIRE(parse_vehicle(body(coordinates+",\"gps_as_of\":1800000000"),config().vin,true,o,&detail)==Error::None);
     REQUIRE(std::string(detail)=="none");
+}
+TEST(gps_whole_second_json_number_notation_keeps_exact_source_deadline) {
+    for(const char* number:{"1800000000.0","1.8e9","1800000000000e-3"}) {
+        Observation o;const char* detail=nullptr;
+        REQUIRE(parse_vehicle(body(std::string("\"latitude\":0,\"longitude\":0,\"gps_as_of\":")+number),config().vin,true,o,&detail)==Error::None);
+        REQUIRE(o.source_s==epoch);REQUIRE(std::string(detail)=="gps_as_of_numeric_seconds");
+        o.generation=1;o.request=1;
+        Policy p;p.configure(config(),1,0);p.observe(o,0,epoch,true);
+        REQUIRE(p.tick(899999).auto_home);REQUIRE(!p.tick(900000).auto_home);
+    }
 }
 TEST(json_bounds_duplicates_and_hostile_input) {
     Json j;

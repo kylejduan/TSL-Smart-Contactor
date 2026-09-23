@@ -83,6 +83,13 @@ GPS-quality field is invented. Missing GPS source time inhibits renewal. Actual
 vehicle compatibility/freshness remains a live integration check. Firmware
 silently treating a missing source time as current would violate the policy.
 
+Whole-second JSON numbers may use decimal or exponent notation, as allowed by
+[RFC 8259 section 6](https://www.rfc-editor.org/rfc/rfc8259#section-6). The parser
+accepts those representations only when finite, integral and in the supported
+epoch-seconds range; it does not infer milliseconds, parse strings as timestamps,
+round fractions or substitute another field. This is a parser design decision,
+not evidence that Tesla uses a particular numeric notation on every vehicle.
+
 ## Pricing and limits
 
 The expanded vehicle schema marks list/status `pricing_category: null`, and
