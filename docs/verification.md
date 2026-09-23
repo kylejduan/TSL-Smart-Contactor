@@ -419,3 +419,11 @@ All local test processes completed; no laptop polling job or server was left run
 See [acceptance record](acceptance.md) for the full requirement audit and remaining
 live GPS/physical checks. No arming, relay ON, vehicle command or billing change
 was performed.
+
+A further hostile-client check closed a login connection before password verification
+completed. After completion/backoff, the server accepted requests and a subsequent
+invalid short-password login returned 401 rather than remaining stuck at the busy
+429 response. The async login slot was released. USB still reported DISABLED,
+uncommissioned, dry-run, OFF commanded, no fault/allocation failure, 52 ms maximum
+control gap and no Fleet endpoint contacted in this boot. This is a bounded
+connection-cleanup check, not a network-denial-of-service guarantee.
