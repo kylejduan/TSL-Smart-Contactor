@@ -50,10 +50,22 @@ per-device certificate. Submit domain entries only after DNS and HTTPS checks pa
   DNS lookup from before the record existed; certificate verification was enabled.
 - No Tesla application acceptance, public-key generation/hosting, consent, token
   exchange, USB provisioning or relay operation was performed by this hosting step.
-  The public-key URL remains unavailable until the next section is completed.
+  At that checkpoint the public-key URL was unavailable; see the subsequent key
+  deployment below.
 
 The Vercel CLI is authenticated locally; its `.vercel/` metadata and generated
 `.env*` files are ignored. They must never be committed or copied into site output.
+
+### Public key verified 2026-09-23
+
+After local preparation, only the generated EC P-256 **public** key was copied to
+the permitted hosting path. Production commit `40b1271` reached **READY** on Vercel.
+The custom-domain key URL returned HTTP 200 with normal certificate verification
+and no redirect, exactly matching the local public PEM bytes. SHA-256:
+`c1252490029f832d10090704ba50a0f2157cc2e1bfc40df923c0cffb29ae5bb0`.
+The callback also returned the exact committed bytes. Private keys, client metadata
+and device certificates stayed local. This verifies key availability, not Tesla
+regional registration or consent, which require the owner's local helper session.
 
 ## After Tesla assigns a client ID
 
