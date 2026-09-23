@@ -143,6 +143,9 @@ Only one administrator session exists; a new login replaces it. The browser stor
 no tokens/passwords in localStorage/sessionStorage. Status deliberately contains
 VIN/home settings for the authenticated owner but never Wi-Fi/Tesla credentials,
 password hashes or private keys. Errors are fixed enums, not upstream bodies.
+Status and USB diagnostics also retain the last Fleet endpoint, HTTP status and
+a fixed parse-failure label. Missing/null GPS source time is distinguished from
+invalid timestamp units and missing coordinates; no response values are logged.
 A 16-entry RAM decision log is bounded and volatile. No unbounded flash logs,
 recovery AP, BLE, RS485 controls, OTA or factory services are enabled.
 

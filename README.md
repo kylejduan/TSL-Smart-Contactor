@@ -250,6 +250,7 @@ before discounts and reservation counts by endpoint in status/location/refresh o
 | Interrupted token rotation | Device attempts bounded recovery using Tesla's documented recent-token reuse window. After three ambiguous attempts or 24 h, fresh consent is required. No infinite retry or token erasure occurs. |
 | `missing_permission` / `billing` / authentication | Fix owner consent or portal billing manually; authenticated check-now can retry after backoff. Permanent revocation still requires USB. |
 | Request cap / rate limit | Review counters and wait for the period/backoff, or deliberately change caps. Browser refresh does not query Tesla. |
+| `malformed_data` | Check the Tesla response endpoint, HTTP status and fixed detail in the dashboard or USB diagnostics. Missing/null `gps_as_of` cannot authorize AUTO; do not substitute receipt time or the general response timestamp. |
 | Clock/Wi-Fi | Check 2.4 GHz Wi-Fi, DNS and SNTP reachability. HTTPS management remains local. There is no unattended setup hotspot. |
 | Local certificate warning | Check URL/SAN, local CA trust and expiry. Generate a new local directory/certificate and explicitly reprovision; do not disable verification. |
 | Browser connection refused | Enter the full `https://` device URL. The controller serves port 443 only; port 80 has no HTTP service or redirect. Use USB diagnostics to confirm its current IP. |

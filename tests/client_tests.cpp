@@ -54,6 +54,18 @@ TEST(client_fetches_location_only_after_online) {
     Fixture f;f.io.replies={{Endpoint::Refresh,200,token},{Endpoint::Status,200,online},{Endpoint::Location,200,location}};
     auto o=fix(epoch);REQUIRE(f.client.poll(config(),1,o)==Error::None);REQUIRE(o.kind==Evidence::Location);
 }
+TEST(client_reports_failed_endpoint_status_and_fixed_parser_detail) {
+    Fixture f;
+    const std::string missing="{\"response\":{\"vin\":\"5YJ3E1EA7KF000001\",\"drive_state\":{\"latitude\":0,\"longitude\":0}}}";
+    f.io.replies={{Endpoint::Refresh,200,token},{Endpoint::Status,200,online},{Endpoint::Location,200,missing}};
+    auto o=fix(epoch);REQUIRE(f.client.poll(config(),1,o)==Error::Malformed);
+    auto d=f.client.diagnostics();REQUIRE(std::string(d.endpoint)=="location");
+    REQUIRE(d.http_status==200);REQUIRE(std::string(d.detail)=="gps_as_of_missing");
+    f.io.replies={{Endpoint::Status,403,"private error body"}};
+    REQUIRE(f.client.poll(config(),1,o)==Error::Permission);
+    d=f.client.diagnostics();REQUIRE(std::string(d.endpoint)=="status");
+    REQUIRE(d.http_status==403);REQUIRE(std::string(d.detail)=="missing_permission");
+}
 TEST(disabled_during_blocked_io_does_not_restore_or_issue_location) {
     Fixture f;Policy policy;policy.configure(config(),1,0);policy.observe(fix(epoch),0,epoch,true);
     REQUIRE(policy.tick(30000).commanded);

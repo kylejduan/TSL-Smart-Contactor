@@ -1,6 +1,11 @@
 #pragma once
 #include "reliability.hpp"
 namespace tsl {
+struct FleetDiagnostics {
+    const char* endpoint="none";
+    const char* detail="none";
+    int http_status=0;
+};
 struct HttpResult {
     Error error=Error::None;
     int status=0;
@@ -27,6 +32,7 @@ public:
     Ms refresh_at() const {return access_until_;}
     uint32_t retry_s() const {return retry_;}
     const BudgetRecord& counts() const {return budget_.counts();}
+    FleetDiagnostics diagnostics() const {return diagnostic_;}
 private:
     Error account(Endpoint,const Config&);
     Error get(Endpoint,const Config&,Observation&);
@@ -37,6 +43,7 @@ private:
     char access_[4097]={};
     Ms access_until_=0;
     uint32_t retry_=0;
+    FleetDiagnostics diagnostic_{};
 };
 void wipe(void*,size_t);
 }

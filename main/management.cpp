@@ -144,6 +144,7 @@ size_t status_json(char* out,size_t capacity) {
         "\"distance_m\":%.1f,\"last_success_uptime_s\":%lld,\"next_poll_s\":%lld,"
         "\"wifi_connected\":%s,\"rssi_dbm\":%d,\"uptime_s\":%lld,\"utc_ready\":%s,"
         "\"error\":\"%s\",\"reauthorization_needed\":%s,\"poll_busy\":%s,"
+        "\"fleet_endpoint\":\"%s\",\"fleet_http_status\":%d,\"fleet_detail\":\"%s\","
         "\"reserved_today\":[%lu,%lu,%lu],\"reserved_month\":[%lu,%lu,%lu],\"estimated_location_usd\":%.3f,"
         "\"settings\":{\"vin\":\"%s\",\"home_lat\":%.7f,\"home_lon\":%.7f,\"enable_m\":%lu,\"disable_m\":%lu,"
         "\"max_age_s\":%lu,\"future_s\":%lu,\"lease_s\":%lu,\"sleep_s\":%lu,\"poll_s\":%lu,\"dwell_s\":%lu,"
@@ -153,6 +154,7 @@ size_t status_json(char* out,size_t capacity) {
         d.lease_left/1000,d.override_left/1000,vehicle_name(s.vehicle),age,d.distance,s.last_poll/1000,remaining,
         wifi_connected?"true":"false",rssi,now_ms()/1000,s.utc_ok?"true":"false",error_name(s.error),
         s.error==Error::Reauthorize || s.error==Error::Authentication || s.error==Error::Permission ?"true":"false",network_busy?"true":"false",
+        s.fleet.endpoint,s.fleet.http_status,s.fleet.detail,
         (unsigned long)s.budget.daily[0],(unsigned long)s.budget.daily[1],(unsigned long)s.budget.daily[2],
         (unsigned long)s.budget.monthly[0],(unsigned long)s.budget.monthly[1],(unsigned long)s.budget.monthly[2],s.budget.monthly[1]*0.002,
         s.config.vin,s.config.home_lat,s.config.home_lon,(unsigned long)s.config.enable_m,(unsigned long)s.config.disable_m,

@@ -249,3 +249,34 @@ is 925,984 bytes; SHA-256
 The 46 native tests with sanitizers and 12 Python tests passed. USB diagnostics
 now include gateway/DNS and SNTP/UTC fields without credentials or location data.
 Physical relay measurements and live Fleet validation remain separate checks.
+
+## First live Fleet attempt and redacted diagnostics 2026-09-23
+
+With DNS and UTC repaired, the owner-operated check passed authenticated HTTPS
+login/status and its safety preconditions, temporarily selected AUTO while still
+uncommissioned/dry-run, then observed `malformed_data`. The endpoint reservation
+counters advanced for refresh, status and location. Given the production client's
+sequence, reaching the location request establishes that runtime refresh and
+durable replacement-token storage succeeded and the selected vehicle's status
+parsed as ONLINE. The available diagnostic did not identify the rejected response
+field or HTTP status, so no live location/freshness success is claimed.
+
+Authenticated USB OFF was acknowledged. Final USB state was DISABLED,
+uncommissioned, dry-run, OFF commanded and fault-free; UTC remained ready, token
+storage usable, no failed allocation was recorded and maximum control gap was
+63 ms. Reservation counts are conservative spending estimates, not exact billed
+request counts. No wake, vehicle command or physical relay ON was requested.
+
+The next firmware exposes the last Fleet endpoint, HTTP status and a fixed failure
+detail in authenticated web status/dashboard and USB diagnostics. Parser details
+distinguish missing/null GPS source time, invalid seconds, missing coordinates,
+VIN mismatch, missing drive state and invalid JSON. They never include upstream
+error text, tokens, VIN or coordinates. Native tests now include field-diagnostic
+redaction and endpoint/status propagation; all **48 C++ tests** with sanitizers
+and **12 Python tests** passed, along with embedded JavaScript syntax validation.
+
+ESP-IDF v5.5.2 build passed: application **927,008 bytes**, SHA-256
+`6cb2c874f7c1d33f2fc3f5833006349c35d67e28d4a6d52ed341a63d1ec65fee`.
+Application-only flash hash verification passed. At 37 seconds after that reboot,
+USB verified DNS/UTC ready, preserved profile/token storage, no fault and a 50 ms
+maximum control gap, with DISABLED, uncommissioned, dry-run and OFF retained.

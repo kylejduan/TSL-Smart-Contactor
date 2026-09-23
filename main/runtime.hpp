@@ -1,6 +1,7 @@
 #pragma once
 #include "policy.hpp"
 #include "reliability.hpp"
+#include "client.hpp"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include <atomic>
@@ -24,6 +25,7 @@ struct Snapshot {
     Error error=Error::None;
     Ms last_poll=0,next_poll=0;
     BudgetRecord budget{};
+    FleetDiagnostics fleet{};
     Event events[16]{};
     unsigned event_count=0;
 };
@@ -38,7 +40,7 @@ uint32_t inhibit(); // Immediate OFF + invalidates in-flight and queued requests
 bool configure(const Config&,uint32_t epoch);
 bool timed(uint32_t seconds,uint32_t epoch);
 bool submit(const Observation&);
-void network_status(Vehicle,Error,Ms last,Ms next,const BudgetRecord&,bool paused);
+void network_status(Vehicle,Error,Ms last,Ms next,const BudgetRecord&,bool paused,FleetDiagnostics);
 void start_wifi(const Profile&);
 void start_tesla(const Profile&);
 bool start_management(const Profile&);

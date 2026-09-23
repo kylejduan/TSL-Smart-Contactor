@@ -29,9 +29,13 @@ Error FleetClient::refresh(const Config& cfg) {
     }
     std::snprintf(form,sizeof form,"grant_type=refresh_token&client_id=%s&refresh_token=%s",id,token);
     HttpResult result;io_.request(Endpoint::Refresh,cfg,nullptr,form,result);
+    diagnostic_={"refresh",error_name(result.error),result.status};
     retry_=std::max(retry_,result.retry_s);wipe(form,sizeof form);wipe(token,sizeof token);
     e=result.error;Tokens tokens;
-    if(e==Error::None)e=parse_tokens(result.body.view(),tokens);
+    if(e==Error::None) {
+        e=parse_tokens(result.body.view(),tokens);
+        if(e!=Error::None)diagnostic_.detail="token_response_rejected";
+    }
     else if(result.status==400 || result.status==401) {
         Json j;
         if(j.parse(result.body.view()) && (j.equal(j.get(0,"error"),"login_required") ||
@@ -55,6 +59,7 @@ Error FleetClient::get(Endpoint endpoint,const Config& cfg,Observation& o) {
         if(!io_.current(o.generation))return Error::Unavailable;
         auto e=account(endpoint,cfg);if(e!=Error::None)return e;
         HttpResult result;io_.request(endpoint,cfg,access_,nullptr,result);
+        diagnostic_={endpoint==Endpoint::Location?"location":"status",error_name(result.error),result.status};
         retry_=std::max(retry_,result.retry_s);
         if(result.error==Error::Authentication && attempt==0) {
             if(!io_.current(o.generation))return Error::Unavailable;
@@ -62,7 +67,7 @@ Error FleetClient::get(Endpoint endpoint,const Config& cfg,Observation& o) {
             continue;
         }
         if(result.error!=Error::None)return result.error;
-        return parse_vehicle(result.body.view(),cfg.vin,endpoint==Endpoint::Location,o);
+        return parse_vehicle(result.body.view(),cfg.vin,endpoint==Endpoint::Location,o,&diagnostic_.detail);
     }
     return Error::Authentication;
 }
