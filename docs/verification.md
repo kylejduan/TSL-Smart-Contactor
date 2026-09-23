@@ -302,3 +302,50 @@ build passed: application 927,248 bytes, SHA-256
 `9384e5ffe038b9264fc8278477a577171fa036c97be30ea9b9fb06e0e1661532`.
 Application-only flash hash verification passed. Acceptance of live GPS remains
 pending; the HTTP 200 result alone does not establish source-time compatibility.
+
+## Final unattended result 2026-09-23
+
+The owner authorized continued unattended diagnosis and provided the local
+administrator password through a local file. Helpers consumed it directly in the
+local process without printing it, adding it to command-line arguments, or copying
+it into the repository. No laptop token refresh or credential reprovisioning occurred.
+
+The numeric GPS-source diagnostic confirmed a negative `gps_as_of` on the live
+HTTP 200 location response. A single bounded comparison request selecting
+`drive_state;location_data` also returned a negative value. The final request was
+restored to `location_data` alone; there is no experimental selector setting or
+timestamp workaround in the installed firmware. No authoritative offset/unit
+conversion was established. Receipt time, general response timestamps and signed
+integer reinterpretation are not substitutes for qualifying GPS evidence.
+
+The endpoint returned valid identity and coordinates, but **AUTO location
+authorization remains unverified and blocked by invalid source time**. Recheck
+after the vehicle obtains a new GPS fix during normal use; if it persists, use
+the redacted endpoint/status/detail and numeric source field for Tesla support.
+Do not commission or enable physical output to work around this failure.
+
+The final diagnostics retain that numeric field in RAM, without coordinates or
+arbitrary upstream text. The UI now labels the last explicit vehicle-status check
+separately from GPS acceptance. Native coverage verifies ONLINE plus negative GPS
+remains unauthorized and cannot command ON. All **50 native tests** with ASan/UBSan
+and **12 Python tests** passed; embedded JavaScript syntax passed.
+
+Final ESP-IDF **v5.5.2** build and application-only flash hash verification passed.
+Application size: **927,504 bytes**; SHA-256
+`80f64c372ab2294958ddea4c501f49e7fab8b747b559430586c7841028bed4e2`.
+The image fits the 3 MiB factory partition with 71% remaining. No NVS erasure,
+eFuse change, factory-demo code, wake/vehicle command or relay ON was used.
+
+After the final reboot, native Windows HTTPS with normal root-store verification
+served HTML identical to the source. Unauthenticated status returned 401, local
+password login succeeded, and an authenticated OFF request with invalid CSRF
+returned 403. The test logged out. Its status was DISABLED, uncommissioned,
+dry-run, OFF commanded, Wi-Fi/UTC ready and polling idle, with no Fleet request
+issued in that final boot. USB at 101 seconds confirmed the same inhibited state,
+intact saved profile, usable token journal, no fault or failed allocation, and
+51 ms maximum control gap. Earlier live refresh/location loads measured up to
+65 ms; these observations are not worst-case timing or injected-watchdog tests.
+
+Polling is left DISABLED. Fresh GPS acceptance, COM–NO continuity/polarity,
+boot/reset pulses, injected watchdog/brownout behavior, actual contactor operation
+and mains/electrical approval remain outstanding. GPIO OFF is not voltage feedback.

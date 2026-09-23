@@ -34,9 +34,13 @@ TEST(location_diagnostics_distinguish_missing_null_and_invalid_source_without_va
         {",\"gps_as_of\":0","gps_as_of_out_of_range"},
         {",\"gps_as_of\":\"1800000000\"","gps_as_of_not_numeric"},
         {",\"gps_as_of\":1800000000.5","gps_as_of_fractional_seconds"}}) {
-        Observation o;const char* detail=nullptr;
-        REQUIRE(parse_vehicle(body(coordinates+item.first),config().vin,true,o,&detail)==Error::Malformed);
+        Observation o;const char* detail=nullptr;double source=999;
+        REQUIRE(parse_vehicle(body(coordinates+item.first),config().vin,true,o,&detail,&source)==Error::Malformed);
         REQUIRE(std::string(detail)==item.second);REQUIRE(o.kind!=Evidence::Location);
+        if(std::string(item.second)=="gps_as_of_millisecond_scale")REQUIRE(source==1800000000000.0);
+        else if(std::string(item.second)=="gps_as_of_out_of_range")REQUIRE(source==0);
+        else if(std::string(item.second)=="gps_as_of_fractional_seconds")REQUIRE(source==1800000000.5);
+        else REQUIRE(source==-1);
     }
     Observation o;const char* detail=nullptr;
     REQUIRE(parse_vehicle("{\"response\":null,\"error\":\"private upstream text\"}",config().vin,true,o,&detail)==Error::Malformed);

@@ -45,17 +45,20 @@ DISABLED and dry-run. The software cannot independently verify your measurement.
   They cannot enter the physical firmware transport or energize the real relay.
 - [ ] Select AUTO while still dry-run. Check that desired HOME/ON and physical
   **OFF commanded** remain distinct. Live Tesla verification requires your own
-  explicit credentials/consent and may incur calls; no live test was run for you.
+  explicit credentials/consent and may incur calls. Bounded live checks reached
+  the location endpoint but rejected its GPS timestamp; see the verification record.
 - [ ] On a live, already-online vehicle near the configured home, verify the parser
   receives fresh `drive_state.gps_as_of` with correct seconds and source age.
   Do not substitute the general timestamp when GPS time is absent. Confirm actual
   VIN/home and distance. Wake the vehicle yourself if needed; firmware must not.
-- [ ] Verify read-only scope consent and the absence of wake/charging/command calls.
-- [ ] Observe an automatic token refresh and subsequent successful status poll.
+- [x] Verify read-only scope consent and the absence of wake/charging/command calls.
+- [x] Observe an automatic token refresh and subsequent successful status poll.
   Verify its replacement survives a reboot without exposing either token.
   Native tests cover power loss before/after commit; actual brownout/NVS testing
   remains separate and may consume a token's recovery window. Never reuse that
   token concurrently from the laptop.
+  Completed during the 2026-09-23 bounded live checks and subsequent reboots;
+  this does not establish valid GPS-source time or physical brownout behavior.
 - [ ] Confirm a TLS-untrusted certificate, wrong hostname and invalid time fail
   outbound requests. Confirm the device's local certificate matches its LAN URL.
 - [ ] Signed-out state changes, missing/wrong CSRF and wrong Origin must fail.

@@ -145,10 +145,14 @@ VIN/home settings for the authenticated owner but never Wi-Fi/Tesla credentials,
 password hashes or private keys. Errors are fixed enums, not upstream bodies.
 Status and USB diagnostics also retain the last Fleet endpoint, HTTP status and
 a fixed parse-failure label. Missing/null GPS source time is distinguished from
-invalid timestamp units and missing coordinates; no response values are logged.
+invalid timestamp units and missing coordinates. The numeric GPS source field is
+available as `gps_source_value` in RAM diagnostics (`-1` before a numeric source
+has been parsed); coordinates and arbitrary upstream text remain excluded.
 Whole GPS seconds encoded with decimal/exponent notation retain the same source
 value and lease deadline. Successful normalization reports `gps_as_of_numeric_seconds`;
 fractional values, millisecond-scale values and non-numeric types remain rejected.
+The last explicit vehicle-status result is displayed independently of GPS acceptance;
+an ONLINE status followed by invalid GPS never establishes HOME permission.
 A 16-entry RAM decision log is bounded and volatile. No unbounded flash logs,
 recovery AP, BLE, RS485 controls, OTA or factory services are enabled.
 

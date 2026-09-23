@@ -261,3 +261,11 @@ before discounts and reservation counts by endpoint in status/location/refresh o
 Architecture, exact state behavior and security boundaries are in
 [docs/architecture.md](docs/architecture.md). Tests require neither credentials nor
 paid requests. Hardware/vehicle/electrical validation remains separate.
+
+The 2026-09-23 physical integration check reached the location endpoint with HTTP
+200, but its numeric `gps_as_of` was negative. AUTO correctly remained unauthorized.
+If this persists after the vehicle obtains a new GPS fix during normal use, retain
+the redacted endpoint/status/detail and `gps_source_value` for Tesla Fleet API
+support. Do not infer an offset, wrap a negative number, or replace source time
+with receipt time. Leave DISABLED/uncommissioned/dry-run until valid GPS evidence
+and the separate physical bench checks pass. See [verification](docs/verification.md).

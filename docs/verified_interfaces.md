@@ -90,6 +90,14 @@ epoch-seconds range; it does not infer milliseconds, parse strings as timestamps
 round fractions or substitute another field. This is a parser design decision,
 not evidence that Tesla uses a particular numeric notation on every vehicle.
 
+**Live integration observation (2026-09-23):** the owner's selected vehicle returned
+HTTP 200 with valid identity/coordinates but a negative numeric `gps_as_of`, outside
+the supported epoch-seconds range. A bounded trial adding the `drive_state`
+selector also returned a negative GPS source value; the final firmware retains
+the original `location_data` selector. No authoritative conversion for this value
+was established. This is an unresolved compatibility boundary, not permission to
+substitute another timestamp or infer freshness from receipt time.
+
 ## Pricing and limits
 
 The expanded vehicle schema marks list/status `pricing_category: null`, and
