@@ -216,3 +216,36 @@ USB still reported OFF, DISABLED, uncommissioned, dry-run, no critical fault and
 Chrome/Bitdefender warning behavior and authenticated login must be checked in
 those applications. The earlier pending noninteractive certificate import was
 terminated before reopening it in an owner-visible window.
+
+## Live-check prerequisites and DNS repair 2026-09-23
+
+The owner authorized a bounded read-only Fleet check with physical output inhibited.
+The first attempt timed out during local login, before AUTO was requested. A
+deliberately invalid, non-secret login measured 9.09 seconds before the expected
+401 response; GET `/` took 0.81 seconds. The task-local helper's eight-second login
+timeout was too short for PBKDF2 on this board. It now allows 30 seconds for login,
+without reducing password hashing strength, and identifies failures by step.
+
+The second attempt completed authenticated HTTPS login/status but failed its
+preconditions before AUTO. Added USB metadata then confirmed Wi-Fi connected with
+no synchronized clock. Starting SNTP only after DHCP connection was insufficient:
+diagnostics showed the gateway present but DNS `0.0.0.0`. The pinned ESP-IDF/lwIP
+reserves its final DNS slot and skips it during DHCP processing even when fallback
+support is disabled. The project's one-slot configuration therefore accepted no
+DHCP resolver. Two slots now provide one usable resolver plus the unused reserved
+slot; a compile-time guard prevents the one-slot mistake. SNTP uses ESP-NETIF's
+checked initialization/start APIs and restarts on IP acquisition.
+
+After the final application-only update, USB diagnostics at 37 seconds uptime
+confirmed DHCP DNS populated, SNTP enabled, UTC synchronized and UTC ready.
+The board remained DISABLED, uncommissioned, dry-run, OFF commanded and fault-free;
+maximum observed control gap was 51 ms. Saved profile integrity and token journal
+usability were intact. This establishes the prerequisites, not a live Tesla result:
+neither failed helper attempt reached AUTO or issued a Fleet request.
+
+ESP-IDF v5.5.2 build and esptool flash hash verification passed. Application size
+is 925,984 bytes; SHA-256
+`0d5589034245b19000a6b089ff4958cc16fb80debba89740001c951b56708854`.
+The 46 native tests with sanitizers and 12 Python tests passed. USB diagnostics
+now include gateway/DNS and SNTP/UTC fields without credentials or location data.
+Physical relay measurements and live Fleet validation remain separate checks.

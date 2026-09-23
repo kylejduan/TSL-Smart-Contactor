@@ -114,6 +114,11 @@ versions come from that release's `tools/tools.json`, not a rolling Arduino core
 - [Task watchdog](https://docs.espressif.com/projects/esp-idf/en/v5.5.2/esp32s3/api-reference/system/wdts.html): the control task subscribes and feeds only after processing deadlines and GPIO. Silent reset/core-dump omission avoids credential dumps.
 - Local TLS uses an explicitly generated per-device certificate and local CA. Ordinary NVS is **not encrypted**; secure boot, flash encryption and irreversible eFuses are not enabled automatically.
 
+Additional SDK verification on 2026-09-23:
+
+- [ESP-NETIF SNTP lifecycle](https://docs.espressif.com/projects/esp-idf/en/v5.5.2/esp32s3/api-reference/network/esp_netif_programming.html#sntp-service) recommends starting after network connection; starting earlier can trigger retry backoff. The firmware initializes without starting, then starts/restarts on `IP_EVENT_STA_GOT_IP`.
+- The pinned SDK's `components/lwip/port/include/lwipopts.h` defines the reserved DNS index as `DNS_MAX_SERVERS - 1`. Its [lwIP DHCP implementation](https://github.com/espressif/esp-lwip/blob/fd432e4ee2cfb7f7f1c7eb7227e0173412e7b84e/src/core/ipv4/dhcp.c#L800) skips that slot even when fallback support is disabled. The project now allocates two slots for one usable DHCP resolver and an unused reserved slot, with a compile-time guard against a one-slot configuration. This is an SDK-specific implementation constraint, not a Tesla requirement.
+
 No real vehicle credentials, private keys, paid API calls, hardware flashing,
 relay actuation, mains measurements or Tesla billing changes were performed during
 development. Fixtures are synthetic; see [verification](verification.md).

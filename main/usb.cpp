@@ -5,10 +5,12 @@
 #include "esp_system.h"
 #include "esp_heap_caps.h"
 #include "esp_netif.h"
+#include "esp_sntp.h"
 #include "esp_mac.h"
 #include "mbedtls/platform_util.h"
 #include <cstring>
 #include <cstdio>
+#include <ctime>
 namespace app {
 namespace {
 const char* provision_stage="idle";
@@ -25,16 +27,23 @@ void diagnostics() {
     auto marker=storage().read("provisioning",&pending,sizeof pending);
     TokenJournal journal(storage());auto token=journal.load();
     esp_netif_ip_info_t ip={};
+    esp_netif_dns_info_t dns={};
     auto* netif=esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
-    if(netif)esp_netif_get_ip_info(netif,&ip);
+    if(netif) {
+        esp_netif_get_ip_info(netif,&ip);
+        esp_netif_get_dns_info(netif,ESP_NETIF_DNS_MAIN,&dns);
+    }
     auto cause=fault_source.load();
     uint8_t mac[6]={};esp_read_mac(mac,ESP_MAC_WIFI_STA);
-    char b[768]={};
+    auto state=snapshot();
+    char b[1024]={};
     std::snprintf(b,sizeof b,
         "{\"profile_record\":\"%s\",\"profile_integrity\":%s,\"provision_marker\":\"%s\",\"provision_pending\":%s,"
         "\"token_state\":\"%s\",\"provision_stage\":\"%s\",\"uptime_s\":%lld,\"reset_reason\":%d,"
         "\"usb_stack_min_bytes\":%u,\"internal_heap_free\":%u,\"internal_heap_largest\":%u,"
         "\"fault_source\":\"%s\",\"failed_allocation_bytes\":%u,\"control_max_gap_ms\":%u,"
+        "\"utc_synced\":%s,\"utc_ready\":%s,\"utc_epoch_s\":%lld,"
+        "\"sntp_enabled\":%s,\"gateway\":\"" IPSTR "\",\"dns\":\"" IPSTR "\","
         "\"wifi_connected\":%s,\"ip\":\"" IPSTR "\",\"station_mac\":\"%02x:%02x:%02x:%02x:%02x:%02x\"}",
         read_name(raw),valid?"true":"false",read_name(marker),pending?"true":"false",
         token==Error::None?"usable":token==Error::Reauthorize?"missing_or_reauthorize":"error",
@@ -42,6 +51,8 @@ void diagnostics() {
         unsigned(uxTaskGetStackHighWaterMark(nullptr)),unsigned(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
         unsigned(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)),cause?cause:"none",
         unsigned(failed_allocation_bytes.load()),unsigned(control_max_gap_ms.load()),
+        utc_synced?"true":"false",state.utc_ok?"true":"false",static_cast<long long>(time(nullptr)),
+        esp_sntp_enabled()?"true":"false",IP2STR(&ip.gw),IP2STR(&dns.ip.u_addr.ip4),
         wifi_connected?"true":"false",IP2STR(&ip.ip),mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
     mbedtls_platform_zeroize(&journal,sizeof journal);
     usb_serial_jtag_write_bytes(b,std::strlen(b),pdMS_TO_TICKS(1000));

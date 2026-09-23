@@ -2,7 +2,7 @@
 #include "esp_wifi.h"
 #include "esp_netif.h"
 #include "esp_event.h"
-#include "esp_sntp.h"
+#include "esp_netif_sntp.h"
 #include "esp_crt_bundle.h"
 #include "esp_tls.h"
 #include "http_decoder.hpp"
@@ -13,9 +13,16 @@
 #include <cstdlib>
 #include <ctime>
 namespace app {
+static_assert(CONFIG_LWIP_DNS_MAX_SERVERS>=2,
+    "IDF reserves the last DNS slot; DHCP needs a separate usable slot");
 static void sync_callback(timeval*) {utc_synced=true;}
 static void wifi_event(void*,esp_event_base_t base,int32_t id,void*) {
-    if(base==IP_EVENT && id==IP_EVENT_STA_GOT_IP)wifi_connected=true;
+    if(base==IP_EVENT && id==IP_EVENT_STA_GOT_IP) {
+        wifi_connected=true;
+        // DNS and routing are available now. Also discard any old SNTP backoff
+        // on reconnection; never accept an unsynchronized RTC as usable UTC.
+        if(esp_netif_sntp_start()!=ESP_OK)fail("sntp_start");
+    }
     if(base==WIFI_EVENT && id==WIFI_EVENT_STA_DISCONNECTED)wifi_connected=false;
 }
 static void reconnect_task(void*) {
@@ -40,13 +47,14 @@ void start_wifi(const Profile& p) {
     std::memcpy(cfg.sta.password,p.wifi_password,std::strlen(p.wifi_password));
     cfg.sta.threshold.authmode=WIFI_AUTH_WPA2_PSK;
     cfg.sta.pmf_cfg.capable=true;
+    esp_sntp_config_t time_config=ESP_NETIF_SNTP_DEFAULT_CONFIG_MULTIPLE(2,
+        ESP_SNTP_SERVER_LIST("time.cloudflare.com","pool.ntp.org"));
+    time_config.start=false;
+    time_config.sync_cb=sync_callback;
+    if(esp_netif_sntp_init(&time_config)!=ESP_OK) {fail("sntp_init");return;}
     if(esp_wifi_set_mode(WIFI_MODE_STA)!=ESP_OK || esp_wifi_set_config(WIFI_IF_STA,&cfg)!=ESP_OK ||
        esp_wifi_start()!=ESP_OK)fail("network_init_or_allocation");
     mbedtls_platform_zeroize(&cfg,sizeof cfg);
-    esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
-    esp_sntp_setservername(0,"time.cloudflare.com");
-    esp_sntp_setservername(1,"pool.ntp.org");
-    esp_sntp_set_time_sync_notification_cb(sync_callback);esp_sntp_init();
     if(xTaskCreate(reconnect_task,"wifi_retry",3072,nullptr,2,nullptr)!=pdPASS)fail("network_init_or_allocation");
 }
 void request(Endpoint endpoint,const Config& cfg,const char* access,const char* form,HttpResult& r) {

@@ -30,7 +30,8 @@ normal-scheduling deadline; actual worst-case timing and watchdog behavior requi
 physical validation, and flash/cache stalls are not proven by compilation.
 USB diagnostics retain the first local fault source, maximum control-loop gap,
 allocation failure size, current/largest free internal heap, Wi-Fi station MAC and
-assigned IP. Only fixed diagnostic labels and non-secret connection metadata are
+assigned IP, gateway, resolver, SNTP enablement and UTC synchronization/readiness.
+Only fixed diagnostic labels and non-secret connection metadata are
 returned. The DHCP hostname is `smart-contactor`; this does not add mDNS service.
 
 User OFF atomically inhibits output and advances the generation before persistence.
@@ -67,6 +68,8 @@ GPS freshness. Haversine distance clamps roundoff and handles the antimeridian.
 No historical location can prove current physical presence; the sleep rule is an
 explicit bounded compromise, not a proximity sensor.
 
+SNTP is configured before Wi-Fi starts, then started/restarted after DHCP supplies
+an IP address. This avoids carrying pre-connection DNS backoff into normal operation.
 SNTP must synchronize before outbound TLS or accepting GPS. Leases, override,
 dwell and retries use 64-bit monotonic milliseconds. A UTC discontinuity over 30
 seconds clears AUTO; it does not extend any deadline. The onboard RTC is not trusted
@@ -95,8 +98,10 @@ clock and NVS adapter. Native fake transports cannot be selected in firmware.
 
 TLS requests have a 10-second connect budget, five-second no-progress budget and
 20-second total deadline checked in the worker. Nonblocking reads/writes return to
-that loop; one configured DNS server and IPv4 bound the SDK's underlying synchronous
+that loop; one usable DHCP DNS server and IPv4 bound the SDK's underlying synchronous
 DNS retry phase (pinned lwIP defaults, four attempts, approximately seven seconds).
+Two SDK DNS slots are required: the final slot is reserved and remains unused with
+fallback disabled. Configuring only one slot prevents DHCP from installing a resolver.
 No request can keep the control task alive or renew a lease just by retrying.
 Responses are capped at 16 KiB, JSON at depth 12/512 tokens, HTTP line at 1 KiB and
 combined header/chunk metadata at 8 KiB. Close-delimited, length-delimited and chunked

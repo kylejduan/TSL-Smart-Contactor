@@ -102,7 +102,8 @@ Use `python tools/onboard.py usb --port COM5 status` and then `diagnostics`. The
 latter reports only record presence/integrity, the incomplete-provisioning marker,
 token usability, the last provisioning stage, reset reason and memory headroom.
 It also reports the first local fault source, maximum control-loop gap and Wi-Fi
-station MAC/assigned IP. Match that MAC in the router's DHCP reservation. The board
+station MAC/assigned IP, gateway/DNS, and SNTP/UTC readiness. Match that MAC in the
+router's DHCP reservation. The board
 advertises DHCP hostname `smart-contactor`; its certificate must match the actual
 reserved address used in the browser. The hostname alone does not configure DNS.
 It never returns the profile or tokens. An incomplete marker inhibits output across
@@ -252,6 +253,7 @@ before discounts and reservation counts by endpoint in status/location/refresh o
 | Clock/Wi-Fi | Check 2.4 GHz Wi-Fi, DNS and SNTP reachability. HTTPS management remains local. There is no unattended setup hotspot. |
 | Local certificate warning | Check URL/SAN, local CA trust and expiry. Generate a new local directory/certificate and explicitly reprovision; do not disable verification. |
 | Browser connection refused | Enter the full `https://` device URL. The controller serves port 443 only; port 80 has no HTTP service or redirect. Use USB diagnostics to confirm its current IP. |
+| Local login timeout | Password verification took about nine seconds on the bench. Allow 30 seconds for login and authenticated USB commands; do not reduce password hashing strength or retry rapidly. |
 | Storage fault/pending provisioning | Output is inhibited. Recover over USB without erasing flash automatically; interrupted multi-record provisioning must be completed explicitly. |
 | Forgotten administrator password | Physical USB replacement provisioning can set a new password. It replaces credentials and resets all arming; physical access is privileged. |
 
