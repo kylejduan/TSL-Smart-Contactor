@@ -32,7 +32,7 @@ public:
     const char* current() const { return record_.current; }
     bool needs_reauth() const { return record_.reauthorize; }
 private:
-    bool save(TokenRecord next);
+    bool save(TokenRecord& next);
     Store& store_;
     TokenRecord record_{};
     bool busy_ = false, loaded_ = false;

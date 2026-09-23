@@ -59,7 +59,9 @@ static void setup(void*) {
     if(!storage().initialize())critical_fault=true;
     auto r=load_profile(profile);
     if(r==ReadResult::Failed)critical_fault=true;
-    if(xTaskCreate(usb_task,"usb_provision",24576,nullptr,2,nullptr)!=pdPASS)critical_fault=true;
+    // Provisioning nests certificate validation and NVS writes. Keep measured
+    // headroom beyond their buffers; the USB diagnostics expose the watermark.
+    if(xTaskCreate(usb_task,"usb_provision",32768,nullptr,2,nullptr)!=pdPASS)critical_fault=true;
     if(r==ReadResult::Ok && valid_profile(profile) && !critical_fault) {
         configure(profile.config,snapshot().generation);
         start_wifi(profile);

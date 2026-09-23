@@ -10,7 +10,7 @@ Error TokenJournal::load() {
     loaded_=true;
     return record_.reauthorize ? Error::Reauthorize : Error::None;
 }
-bool TokenJournal::save(TokenRecord next) {
+bool TokenJournal::save(TokenRecord& next) {
     seal(next);
     if(!store_.write("tokens",&next,sizeof next))return false;
     record_=next;loaded_=true;return true;
