@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TSL Smart Contactor</title>
+<style>
+:root{font:17px system-ui;color-scheme:dark;background:#101719;color:#e9efee}body{max-width:850px;margin:2rem auto;padding:0 1rem}h1{font-size:1.7rem}button,input,select{font:inherit;padding:.65rem;border-radius:.4rem;border:1px solid #638079;background:#1c2c2b;color:inherit}button{cursor:pointer;margin:.25rem}#off{background:#8a2626;border:2px solid #ffaaaa;font-weight:bold;min-width:160px}section{padding:1rem;margin:1rem 0;background:#172324;border-radius:.6rem}label{display:block;margin:.6rem 0}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:.85rem}dl{display:grid;grid-template-columns:1fr 1fr;gap:.5rem}dt{color:#b7cac5}dd{margin:0}#settings label{display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:.5rem}input{min-width:0}small{color:#b7cac5}.warning{color:#ffce89}#command{font-size:1.6rem;font-weight:bold}#message{min-height:1.5em;color:#ffce89}[hidden]{display:none!important}
+</style>
+<h1>TSL Smart Contactor</h1>
+<p>Presence-based outlet authorization · local controller</p>
+<section id="login"><form id="login-form"><label>Administrator password <input id="password" type="password" autocomplete="off" required maxlength="128"></label><button>Sign in</button></form></section>
+<p id="message" role="status"></p>
+<main id="controls" hidden>
+<section><p id="command">OFF commanded</p><p id="reason"></p><button id="off">OFF / DISABLED</button><button id="auto">AUTO</button><p><small>A command is not voltage or charging feedback. Firmware cannot detect welded contacts or identify the connected load.</small></p></section>
+<section><h2>Timed override</h2><p class="warning">Bypasses vehicle presence and connectivity. Requires commissioning and AUTO mode first. Reboot or OFF cancels it.</p><label>Duration (hours, maximum 8) <input id="hours" type="number" min="0.001" max="8" step="0.25" value="1"></label><button id="timed">Start timed ON</button></section>
+<section><h2>Diagnostics</h2><button id="check">Check Tesla now</button><button id="refresh">Refresh local status</button><p id="updated"><small>Status is a snapshot. Refresh to see subsequent changes.</small></p><dl id="status"></dl><small>Tesla polling is independent of browser tabs. Check now respects the shared backoff, request caps and 60-second limit.</small></section>
+<section><h2>Settings</h2><p>VIN/home changes discard prior evidence. Secrets, commissioning and physical-output enablement use USB only.</p><div id="settings"></div><button id="save">Validate and save settings</button></section>
+<p>Reauthorization: connect USB and run the onboarding helper. Keep the contactor/mains wiring disconnected during provisioning and bench checks.</p><button id="logout">Sign out</button>
+</main>
+<script>
+
+'use strict';let csrf='',loadedSettings=null;const $=id=>document.getElementById(id);
+const fields=[['vin','Selected VIN','text'],['home_lat','Home latitude','number'],['home_lon','Home longitude','number'],
+['enable_m','Enable radius (m)','number'],['disable_m','Disable radius (m)','number'],['max_age_s','Maximum GPS age (seconds)','number'],
+['future_s','Future tolerance (seconds)','number'],['lease_s','Authorization lease (seconds)','number'],
+['sleep_s','Sleeping-home ceiling (seconds)','number'],['poll_s','Poll interval (seconds)','number'],
+['dwell_s','Minimum OFF dwell (seconds)','number'],['daily_cap','Daily request cap','number'],['monthly_cap','Monthly request cap','number']];
+for(const [key,label,type] of fields){const row=document.createElement('label');row.textContent=label;const input=document.createElement('input');input.id='setting-'+key;input.type=type;if(type==='number')input.step=key.startsWith('home_')?'any':'1';row.append(input);$('settings').append(row);}
+const regionRow=document.createElement('label');regionRow.textContent='Tesla region';const region=document.createElement('select');region.id='setting-region';for(const [value,label] of [['NA','North America / APAC'],['EU','Europe / Middle East / Africa']]){const o=document.createElement('option');o.value=value;o.textContent=label;region.append(o);}regionRow.append(region);$('settings').append(regionRow);
+const dryRow=document.createElement('label');dryRow.textContent='Dry-run (keep physical relay OFF)';const dry=document.createElement('input');dry.type='checkbox';dry.id='setting-dry_run';dryRow.append(dry);$('settings').append(dryRow);
+async function call(path,data){const r=await fetch(path,{method:data?'POST':'GET',headers:data?{'Content-Type':'application/json','X-CSRF-Token':csrf}:{},body:data?JSON.stringify(data):undefined,cache:'no-store',credentials:'same-origin'});if(r.headers.get('X-CSRF-Token'))csrf=r.headers.get('X-CSRF-Token');const b=await r.json();if(!r.ok){if(r.status===401){$('controls').hidden=true;$('login').hidden=false;csrf='';}throw Error(b.error||'Request failed');}return b;}
+function message(e){$('message').textContent=String(e.message||e);}
+function pair(label,value){const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=label;dd.textContent=value;$('status').append(dt,dd);}
+async function status(reset=false){try{const s=await call('/api/status');$('login').hidden=true;$('controls').hidden=false;$('command').textContent=s.gpio_command;$('reason').textContent=`${s.mode}: ${s.reason}; AUTO HOME: ${s.auto_home}; desired ON: ${s.desired_on}; dry-run: ${s.dry_run}`;
+if(reset||!loadedSettings){loadedSettings=s.settings;for(const [key] of fields)$('setting-'+key).value=s.settings[key];region.value=s.settings.region;dry.checked=s.settings.dry_run;}
+$('status').replaceChildren();for(const [label,value] of [['Vehicle',s.vehicle],['Authorization remaining',s.lease_s+' s'],['Override remaining',s.override_s+' s'],['GPS source age',s.location_age_s<0?'Unavailable':s.location_age_s+' s'],['Distance from home',s.distance_m<0?'Unavailable':s.distance_m+' m'],['Last successful poll',s.last_success_uptime_s?'At uptime '+s.last_success_uptime_s+' s':'None this boot'],['Next poll',s.next_poll_s<0?'Paused':s.next_poll_s+' s'],['Wi-Fi',s.wifi_connected?'Connected ('+s.rssi_dbm+' dBm)':'Disconnected'],['UTC synchronized',s.utc_ready],['Uptime',s.uptime_s+' s'],['Request in progress',s.poll_busy],['Last error',s.error]])pair(label,value);
+for(let i=0;i<3;i++)pair(['Status','Location','Token refresh'][i]+' reserved requests',s.reserved_today[i]+' today / '+s.reserved_month[i]+' this month');pair('Estimated monthly location cost','$'+s.estimated_location_usd.toFixed(3)+' before discounts');$('updated').textContent='Local snapshot refreshed at '+new Date().toLocaleTimeString()+'. Refresh to see later changes.';
+if(s.reauthorization_needed)message('Tesla reauthorization required through USB. AUTO permission is invalid.');}catch(e){message(e);}}
+async function action(action,extra={}){try{await call('/api/action',{action,...extra});message('Accepted.');await new Promise(resolve=>setTimeout(resolve,150));await status();}catch(e){message(e);}}
+$('login-form').onsubmit=async e=>{e.preventDefault();try{await call('/api/login',{password:$('password').value});$('password').value='';message('Signed in for 15 minutes.');await status(true);}catch(e){$('password').value='';message(e);}};
+$('off').onclick=()=>action('off');$('auto').onclick=()=>action('auto');$('timed').onclick=()=>{if(confirm('Request relay ON even if the Tesla is away or unreachable?'))action('timed_on',{seconds:Math.round(Number($('hours').value)*3600)});};
+$('check').onclick=()=>action('check_now');$('refresh').onclick=()=>status();$('save').onclick=()=>{const settings={};for(const [key,,type] of fields)settings[key]=type==='number'?Number($('setting-'+key).value):$('setting-'+key).value;settings.region=region.value;settings.dry_run=dry.checked;action('settings',{settings});};
+$('logout').onclick=async()=>{try{await call('/api/action',{action:'logout'});}catch(e){message(e);}csrf='';loadedSettings=null;$('controls').hidden=true;$('login').hidden=false;$('status').replaceChildren();message('Signed out.');};
+// No browser storage, external resources, telemetry or polling timers.
+</script>
+</html>

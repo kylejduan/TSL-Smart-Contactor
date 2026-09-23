@@ -1,0 +1,75 @@
+# Verification record
+
+As of **2026-09-23**, before physical commissioning. All automated Tesla/USB inputs
+were synthetic; no credentials or paid requests were needed.
+
+## Passed locally
+
+| Check | Result |
+| --- | --- |
+| `cmake -S tests -B build-host -G Ninja` | Configured with GNU C++ 15.2.0, C++17 |
+| `cmake --build build-host` | Passed, warnings treated as errors |
+| `ctest --test-dir build-host --output-on-failure` | Passed: one executable containing **46 C++ tests** |
+| Native sanitizers | AddressSanitizer + UndefinedBehaviorSanitizer enabled; passed, including 10,000 deterministic parser mutation cases |
+| `.venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v` | **10 Python tests passed**, Python 3.12.13 |
+| `.venv/bin/python -m pip check` | No broken requirements |
+| `node --check` on the embedded script | Passed JavaScript syntax check; not a browser/hardware integration test |
+| Python bytecode compilation / helper `--help` | Passed |
+| ESP32-S3 `idf.py build` | Passed using pinned **ESP-IDF v5.5.2**, commit `30aaf64524299d3bde422ca9a2848090d1bc5d0f` |
+| Xtensa compiler | `xtensa-esp-elf-g++ (crosstool-NG esp-14.2.0_20251107) 14.2.0` |
+| `idf.py size` / partition fit | Passed; application fits the 3 MiB factory partition |
+| Effective SDK configuration | 8 MB DIO/40 MHz flash, octal 40 MHz PSRAM with TLS external allocation, USB Serial/JTAG, 1 kHz RTOS tick, 3 s task watchdog, silent panic, full TLS roots/time validation, IPv4/one DNS server, reproducible-build mode |
+| Whitespace/source review | `git diff --check` passed; only this new repository's files staged |
+
+Host tests exercise the production policy, strict JSON parser, bounded HTTP
+framing decoder, Fleet request/refresh sequencing, atomic-store journal logic,
+request reservations/scheduler, and session/CSRF comparison code. They cover
+source-anchored leases, sleep ceiling, OFF precedence, 401 retry limits, caps,
+clock jumps, token rotation failure and redaction. Fake GPIO edge tests verify
+30-second dwell and no renewal-induced OFF pulse. Python tests exercise the actual
+helper's state/redirect checks, large IDs, synthetic API failures, certificate/key
+generation, public/private file separation and a fake serial handoff.
+
+## Build artifact
+
+- Application: `build/tsl_smart_contactor.bin`, **896,464 bytes** (875.45 KiB).
+- SHA-256: `b7fea30e878d34eecc5bd024af46280b7e06eef227d0ee730e6675aad0188fb2`.
+- Bootloader: 13,744 bytes; partition table: 3,072 bytes.
+- Linked image sections: 896,347 bytes before binary padding.
+- Static DIRAM usage: 143,351 bytes; linker-reported remaining DIRAM: 198,409 bytes.
+  This excludes runtime stack/heap use and is **not** a measured free-heap margin.
+  TLS uses the documented 8 MB external PSRAM; control state and task stacks are
+  internal. Actual detection, memory pressure and stack high-water marks still
+  require the board.
+
+SDK reproducible-build mode removes timestamps and remaps paths; no claim is made
+that independently built Linux/Windows artifacts were compared byte-for-byte.
+The image is a local build artifact, ignored by Git. Use the repository's IDF
+commands to build/flash all required images with matching partition offsets.
+
+The first SDK installation exhausted the then-limited Linux volume. Only this
+task's downloaded tools were moved to a volume with available space; incomplete
+source writes were restored and the SDK installation/build were rerun successfully.
+The build used `IDF_TOOLS_PATH="$PWD/.tools/toolchain"` and a local Python 3.12
+virtual environment at `IDF_PYTHON_ENV_PATH="$PWD/.tools/idf-python"`. Neither
+machine-local configuration nor downloaded tools are committed.
+
+## Not verified / deliberately not performed
+
+- Physical board SKU/revision, flash ID, PSRAM detection, GPIO polarity, COM–NO
+  continuity, startup/ROM/reset/brownout pulses, watchdog recovery or real ≤100 ms
+  timing under flash/TLS/login load.
+- Live Tesla registration, consent, paid requests, token rotation/revocation,
+  per-vehicle `gps_as_of` availability/freshness, API latency or sleep effects.
+- Real USB transport on Linux/Windows, physical NVS power loss, LAN certificate
+  import, browser-to-device HTTPS/authentication integration or sustained runtime
+  memory use. Protocol/security logic tests are not substitutes for those checks.
+- Mains installation, protection, contactor operation, actual output voltage,
+  charging, welded contacts or identifying a connected load.
+- No flash, live provisioning, relay actuation, Tesla wake/vehicle command, account
+  billing change, eFuse operation, deployment or service restart was performed.
+
+Follow [the bench checklist](bench_checklist.md) and [README](../README.md) for the
+owner-operated next steps. No validation server/listening port was started, and
+no background validation process is intentionally left running. SDK/toolchain and
+build outputs remain available for reproducibility.
