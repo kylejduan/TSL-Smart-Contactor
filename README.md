@@ -251,6 +251,7 @@ before discounts and reservation counts by endpoint in status/location/refresh o
 | Request cap / rate limit | Review counters and wait for the period/backoff, or deliberately change caps. Browser refresh does not query Tesla. |
 | Clock/Wi-Fi | Check 2.4 GHz Wi-Fi, DNS and SNTP reachability. HTTPS management remains local. There is no unattended setup hotspot. |
 | Local certificate warning | Check URL/SAN, local CA trust and expiry. Generate a new local directory/certificate and explicitly reprovision; do not disable verification. |
+| Browser connection refused | Enter the full `https://` device URL. The controller serves port 443 only; port 80 has no HTTP service or redirect. Use USB diagnostics to confirm its current IP. |
 | Storage fault/pending provisioning | Output is inhibited. Recover over USB without erasing flash automatically; interrupted multi-record provisioning must be completed explicitly. |
 | Forgotten administrator password | Physical USB replacement provisioning can set a new password. It replaces credentials and resets all arming; physical access is privileged. |
 
