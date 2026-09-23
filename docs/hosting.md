@@ -29,9 +29,31 @@ For the owner's planned hostname, the Tesla application entries are:
 | Allowed Redirect URL | `https://charge.kylejduan.com/callback.html` |
 | Allowed Return URL | Leave blank if optional; the helper does not use it |
 
-These entries are a deployment plan, **not evidence that the hostname is live**.
-Submit them only after DNS and HTTPS checks pass. This public hostname is separate
-from the controller's private LAN address and per-device certificate.
+This public hostname is separate from the controller's private LAN address and
+per-device certificate. Submit domain entries only after DNS and HTTPS checks pass.
+
+### Deployment verified 2026-09-23
+
+- Vercel project: `tsl-onboarding` in team `kylejduan-projects`; production branch
+  `main`, repository root directory `hosting`, framework Other, no install/build
+  command, output directory `.`. The existing personal website is a separate project.
+- Production deployment of commit `5d41138` reached **READY**. The landing page and
+  `/callback.html` returned HTTP 200 and exactly matched their committed files.
+- The owner added the Cloudflare **DNS-only CNAME** `charge` pointing to
+  `2c8a7b35203bd29e.vercel-dns-017.com`. Authoritative Cloudflare DNS and a public
+  recursive resolver returned this record; Vercel verified domain ownership and
+  reported `configured-correctly` with no conflicts.
+- Custom-domain HTTPS for `/callback.html` passed normal certificate-chain and
+  hostname checks and returned the exact callback bytes with `Cache-Control:
+  no-store`, `Referrer-Policy: no-referrer` and the restrictive CSP. The first check
+  used a currently resolved Vercel IP because the workstation retained a negative
+  DNS lookup from before the record existed; certificate verification was enabled.
+- No Tesla application acceptance, public-key generation/hosting, consent, token
+  exchange, USB provisioning or relay operation was performed by this hosting step.
+  The public-key URL remains unavailable until the next section is completed.
+
+The Vercel CLI is authenticated locally; its `.vercel/` metadata and generated
+`.env*` files are ignored. They must never be committed or copied into site output.
 
 ## After Tesla assigns a client ID
 
