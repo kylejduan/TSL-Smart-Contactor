@@ -50,7 +50,7 @@ void worker(void* context) {
                 network_busy=false;
             }
         }
-        network_status(vehicle,error,last_success,scheduler.next(),client.counts(),scheduler.paused());
+        network_status(vehicle,error,last_success,scheduler.next(),client.counts(),scheduler.paused(),client.diagnostics());
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }

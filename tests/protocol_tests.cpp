@@ -26,6 +26,21 @@ TEST(status_does_not_confuse_online_offline_sleep_or_home) {
         REQUIRE((o.kind==Evidence::Asleep)==(std::string(state)=="asleep"));
     }
 }
+TEST(location_diagnostics_distinguish_missing_null_and_invalid_source_without_values) {
+    const std::string coordinates="\"latitude\":12.3456,\"longitude\":65.4321";
+    for(const auto& item:{std::pair{"","gps_as_of_missing"},
+        {",\"gps_as_of\":null","gps_as_of_null"},
+        {",\"gps_as_of\":1800000000000","gps_as_of_invalid_seconds"}}) {
+        Observation o;const char* detail=nullptr;
+        REQUIRE(parse_vehicle(body(coordinates+item.first),config().vin,true,o,&detail)==Error::Malformed);
+        REQUIRE(std::string(detail)==item.second);REQUIRE(o.kind!=Evidence::Location);
+    }
+    Observation o;const char* detail=nullptr;
+    REQUIRE(parse_vehicle("{\"response\":null,\"error\":\"private upstream text\"}",config().vin,true,o,&detail)==Error::Malformed);
+    REQUIRE(std::string(detail)=="response_not_object");
+    REQUIRE(parse_vehicle(body(coordinates+",\"gps_as_of\":1800000000"),config().vin,true,o,&detail)==Error::None);
+    REQUIRE(std::string(detail)=="none");
+}
 TEST(json_bounds_duplicates_and_hostile_input) {
     Json j;
     for(auto s:{"{\"vin\":1,\"vin\":2}","{\"v\\u0069n\":1}","[01]","[NaN]","{}garbage","{\"a\":}","[1,]","\"unterminated","[1e]"})REQUIRE(!j.parse(s));

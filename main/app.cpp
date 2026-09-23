@@ -55,9 +55,10 @@ bool submit(const Observation& o) {
     if(!obs_queue || xQueueSend(obs_queue,&o,0)!=pdTRUE) {fail("observation_queue");return false;}
     return true;
 }
-void network_status(Vehicle v,Error e,Ms last,Ms next,const BudgetRecord& b,bool paused) {
+void network_status(Vehicle v,Error e,Ms last,Ms next,const BudgetRecord& b,bool paused,FleetDiagnostics diagnostic) {
     portENTER_CRITICAL(&lock);
     state.vehicle=v;state.error=e;state.last_poll=last;state.next_poll=next;state.budget=b;state.polling_paused=paused;
+    state.fleet=diagnostic;
     portEXIT_CRITICAL(&lock);
 }
 static void allocation_failed(size_t size,uint32_t,const char*) {

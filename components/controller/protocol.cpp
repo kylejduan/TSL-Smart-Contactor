@@ -28,11 +28,17 @@ Error http_error(int s) {
     if(s>=300 && s<400) return Error::Redirect;
     return Error::Malformed;
 }
-Error parse_vehicle(std::string_view body, const char* vin, bool location, Observation& o) {
+Error parse_vehicle(std::string_view body, const char* vin, bool location, Observation& o,const char** detail) {
+    if(detail)*detail="none";
+    auto reject=[&](const char* reason) {
+        if(detail)*detail=reason;
+        return Error::Malformed;
+    };
     Json j;
-    if(!j.parse(body)) return Error::Malformed;
+    if(!j.parse(body)) return reject("invalid_json");
     int r=j.get(0,"response"); char identity[18] = {};
-    if(!j.string(j.get(r,"vin"), identity, sizeof identity) || std::strcmp(identity,vin)) return Error::Malformed;
+    if(!j.is(r,Json::Type::Object))return reject("response_not_object");
+    if(!j.string(j.get(r,"vin"), identity, sizeof identity) || std::strcmp(identity,vin)) return reject("vin_missing_or_mismatch");
     std::memcpy(o.vin,identity,sizeof identity);
     int state=j.get(r,"state");
     if(j.equal(state,"asleep")) o.vehicle=Vehicle::Asleep;
@@ -45,9 +51,14 @@ Error parse_vehicle(std::string_view body, const char* vin, bool location, Obser
         return Error::None;
     }
     int d=j.get(r,"drive_state");
+    if(!j.is(d,Json::Type::Object))return reject("drive_state_missing_or_null");
     if(!j.number(j.get(d,"latitude"),o.lat) || !j.number(j.get(d,"longitude"),o.lon) ||
-       !j.integer(j.get(d,"gps_as_of"),o.source_s) || std::abs(o.lat)>90 || std::abs(o.lon)>180 ||
-       o.source_s<1577836800LL || o.source_s>4102444800LL) return Error::Malformed;
+       std::abs(o.lat)>90 || std::abs(o.lon)>180)return reject("coordinates_missing_or_invalid");
+    int source=j.get(d,"gps_as_of");
+    if(source<0)return reject("gps_as_of_missing");
+    if(j.is(source,Json::Type::Null))return reject("gps_as_of_null");
+    if(!j.integer(source,o.source_s) || o.source_s<1577836800LL || o.source_s>4102444800LL)
+        return reject("gps_as_of_invalid_seconds");
     // No documented accuracy field. Do not substitute drive_state.timestamp,
     // native coordinates, or a synthetic location_data response object.
     o.kind=Evidence::Location;

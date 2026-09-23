@@ -10,7 +10,9 @@ enum class Error : uint8_t {
 };
 const char* error_name(Error e); // Only these fixed labels go to logs/status.
 Error http_error(int status);
-Error parse_vehicle(std::string_view body, const char* vin, bool location, Observation& o);
+// Optional detail is always a fixed literal, never upstream text or field values.
+Error parse_vehicle(std::string_view body, const char* vin, bool location, Observation& o,
+                    const char** detail=nullptr);
 struct Tokens {
     char access[4097] = {}, refresh[2049] = {};
     uint32_t expires_s = 0;
