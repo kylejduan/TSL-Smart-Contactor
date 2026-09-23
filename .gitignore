@@ -9,6 +9,8 @@ __pycache__/
 *.pyc
 /provisioning/
 *.pem
+!/hosting/.well-known/appspecific/com.tesla.3p.public-key.pem
+.vercel/
 *.key
 *.p12
 *.pfx
