@@ -16,7 +16,7 @@ struct StoreFake : Store {
         auto* c=static_cast<const char*>(p);data[key]={c,c+n};return true;
     }
 };
-struct Reply {Endpoint endpoint;int status;std::string body;};
+struct Reply {Endpoint endpoint;int status;std::string body;Error transport_error=Error::None;};
 const std::string token="{\"access_token\":\"synthetic-access\",\"refresh_token\":\"synthetic-next\",\"token_type\":\"Bearer\",\"expires_in\":1000}";
 const std::string asleep="{\"response\":{\"vin\":\"5YJ3E1EA7KF000001\",\"state\":\"asleep\"}}";
 const std::string online="{\"response\":{\"vin\":\"5YJ3E1EA7KF000001\",\"state\":\"online\"}}";
@@ -32,7 +32,9 @@ struct IO : FleetIO {
         REQUIRE(!replies.empty());auto reply=replies.front();replies.pop_front();REQUIRE(reply.endpoint==e);
         if(e==Endpoint::Refresh) {REQUIRE(form);REQUIRE(!std::strstr(form,"client_secret"));}
         else REQUIRE(std::string(access)=="synthetic-access");
-        requests.push_back(e);r.status=reply.status;r.error=http_error(reply.status);r.body.append(reply.body.data(),reply.body.size());
+        requests.push_back(e);r.status=reply.status;
+        r.error=reply.transport_error==Error::None ? http_error(reply.status) : reply.transport_error;
+        r.body.append(reply.body.data(),reply.body.size());
         if(hook)hook(e);
     }
 };
@@ -87,6 +89,26 @@ TEST(disabled_during_blocked_io_does_not_restore_or_issue_location) {
     f.io.hook=[&](Endpoint e) {if(e==Endpoint::Status) {policy.off(2,31000);f.io.generation=2;REQUIRE(!policy.tick(31000).commanded);}};
     auto o=fix(epoch+32,2);REQUIRE(f.client.poll(config(),1,o)==Error::Unavailable);
     policy.observe(o,32000,epoch+32,true);REQUIRE(!policy.tick(32000).commanded);
+}
+TEST(network_failure_cannot_keep_an_expired_home_lease_alive) {
+    for(auto failure:{Error::Timeout,Error::Transport,Error::TooLarge}) {
+        Fixture f;Policy policy;policy.configure(config(),1,0);
+        policy.observe(fix(epoch),0,epoch,true);REQUIRE(policy.tick(30000).commanded);
+        f.io.replies={{Endpoint::Refresh,200,token},{Endpoint::Status,200,online},
+                      {Endpoint::Location,0,"",failure}};
+        f.io.hook=[&](Endpoint endpoint) {
+            if(endpoint==Endpoint::Location) {
+                // The production policy continues while the worker has not returned.
+                REQUIRE(policy.tick(899999).commanded);
+                REQUIRE(!policy.tick(900000).commanded);
+                REQUIRE(!policy.tick(900000).auto_home);
+            }
+        };
+        auto o=fix(epoch,2);
+        REQUIRE(f.client.poll(config(),1,o)==failure);
+        REQUIRE(!policy.tick(901000).commanded);
+        REQUIRE(f.client.diagnostics().attempts_this_boot[1]==1);
+    }
 }
 TEST(client_permission_rate_billing_server_and_malformed_failures) {
     for(auto pair:{std::pair{403,Error::Permission},{429,Error::RateLimit},{402,Error::Billing},{503,Error::Server},{200,Error::Malformed}}) {
