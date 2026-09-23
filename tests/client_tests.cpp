@@ -59,12 +59,24 @@ TEST(client_reports_failed_endpoint_status_and_fixed_parser_detail) {
     const std::string missing="{\"response\":{\"vin\":\"5YJ3E1EA7KF000001\",\"drive_state\":{\"latitude\":0,\"longitude\":0}}}";
     f.io.replies={{Endpoint::Refresh,200,token},{Endpoint::Status,200,online},{Endpoint::Location,200,missing}};
     auto o=fix(epoch);REQUIRE(f.client.poll(config(),1,o)==Error::Malformed);
+    REQUIRE(o.vehicle==Vehicle::Online);REQUIRE(o.kind==Evidence::Unknown);
     auto d=f.client.diagnostics();REQUIRE(std::string(d.endpoint)=="location");
     REQUIRE(d.http_status==200);REQUIRE(std::string(d.detail)=="gps_as_of_missing");
     f.io.replies={{Endpoint::Status,403,"private error body"}};
     REQUIRE(f.client.poll(config(),1,o)==Error::Permission);
     d=f.client.diagnostics();REQUIRE(std::string(d.endpoint)=="status");
     REQUIRE(d.http_status==403);REQUIRE(std::string(d.detail)=="missing_permission");
+}
+TEST(negative_gps_source_never_authorizes_even_with_online_status) {
+    Fixture f;
+    const std::string invalid="{\"response\":{\"vin\":\"5YJ3E1EA7KF000001\",\"drive_state\":{\"latitude\":0,\"longitude\":0,\"gps_as_of\":-123456789}}}";
+    f.io.replies={{Endpoint::Refresh,200,token},{Endpoint::Status,200,online},{Endpoint::Location,200,invalid}};
+    auto o=fix(epoch);REQUIRE(f.client.poll(config(),1,o)==Error::Malformed);
+    REQUIRE(o.vehicle==Vehicle::Online);REQUIRE(o.kind==Evidence::Unknown);
+    REQUIRE(f.client.diagnostics().gps_source_value==-123456789);
+    REQUIRE(std::string(f.client.diagnostics().detail)=="gps_as_of_out_of_range");
+    Policy p;p.configure(config(),1,0);p.observe(o,30000,epoch,true);
+    REQUIRE(!p.tick(30000).auto_home);REQUIRE(!p.tick(30000).commanded);
 }
 TEST(disabled_during_blocked_io_does_not_restore_or_issue_location) {
     Fixture f;Policy policy;policy.configure(config(),1,0);policy.observe(fix(epoch),0,epoch,true);

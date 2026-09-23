@@ -67,7 +67,8 @@ Error FleetClient::get(Endpoint endpoint,const Config& cfg,Observation& o) {
             continue;
         }
         if(result.error!=Error::None)return result.error;
-        return parse_vehicle(result.body.view(),cfg.vin,endpoint==Endpoint::Location,o,&diagnostic_.detail);
+        return parse_vehicle(result.body.view(),cfg.vin,endpoint==Endpoint::Location,o,
+                             &diagnostic_.detail,&diagnostic_.gps_source_value);
     }
     return Error::Authentication;
 }
@@ -80,6 +81,11 @@ Error FleetClient::poll(const Config& cfg,uint32_t generation,Observation& o) {
     auto e=get(Endpoint::Status,cfg,o);
     if(e!=Error::None || o.vehicle!=Vehicle::Online)return e;
     if(!io_.current(generation))return Error::Unavailable;
-    return get(Endpoint::Location,cfg,o);
+    const auto status_vehicle=o.vehicle;
+    e=get(Endpoint::Location,cfg,o);
+    // Keep the last explicit connectivity check distinct from GPS acceptance.
+    // The location response may omit state or contain unusable source time.
+    o.vehicle=status_vehicle;
+    return e;
 }
 }

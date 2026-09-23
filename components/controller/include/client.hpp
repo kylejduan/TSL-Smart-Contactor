@@ -5,6 +5,7 @@ struct FleetDiagnostics {
     const char* endpoint="none";
     const char* detail="none";
     int http_status=0;
+    double gps_source_value=-1; // Finite numeric GPS timestamp only; never coordinates.
 };
 struct HttpResult {
     Error error=Error::None;

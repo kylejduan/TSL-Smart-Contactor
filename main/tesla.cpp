@@ -36,12 +36,13 @@ void worker(void* context) {
                 Observation o;o.generation=s.generation;o.request=++sequence;std::strcpy(o.vin,s.config.vin);
                 if(poll) {
                     scheduler.begin(now_ms());error=client.poll(s.config,s.generation,o);
+                    if(o.vehicle!=Vehicle::Unknown && io.current(s.generation))vehicle=o.vehicle;
                 } else error=client.refresh(s.config);
                 if(error==Error::Storage)fail("tesla_storage");
                 if(error==Error::Reauthorize || error==Error::Authentication || error==Error::Permission) {
                     o.kind=Evidence::Revoked;submit(o);
                 } else if(error==Error::None && poll) {
-                    last_success=now_ms();vehicle=o.vehicle;submit(o);
+                    last_success=now_ms();submit(o);
                 }
                 if(poll || error!=Error::None) {
                     scheduler.finish(now_ms(),error,s.config.poll_s,client.retry_s(),esp_random());
