@@ -10,7 +10,8 @@ Firmware is installed over native Windows USB. Wi-Fi, trusted local HTTPS,
 onboarding, automatic token rotation and live read-only status/location requests
 have passed. AUTO acceptance remains blocked: the live GPS source timestamp is
 negative and fails validation. Relay/contact measurements remain unverified. See [verification evidence](docs/verification.md) and the mandatory
-[USB-only bench checklist](docs/bench_checklist.md). It ships **uncommissioned,
+[USB-only bench checklist](docs/bench_checklist.md). The [acceptance record](docs/acceptance.md)
+maps the original requirements to evidence and open checks. It ships **uncommissioned,
 DISABLED and dry-run**. Arming and physical-output enablement are separate USB
 operations; both leave DISABLED selected.
 

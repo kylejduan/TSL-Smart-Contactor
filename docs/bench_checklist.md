@@ -61,7 +61,7 @@ DISABLED and dry-run. The software cannot independently verify your measurement.
   this does not establish valid GPS-source time or physical brownout behavior.
 - [ ] Confirm a TLS-untrusted certificate, wrong hostname and invalid time fail
   outbound requests. Confirm the device's local certificate matches its LAN URL.
-- [ ] Signed-out state changes, missing/wrong CSRF and wrong Origin must fail.
+- [x] Signed-out state changes, missing/wrong CSRF and wrong Origin must fail.
   Login failures throttle; status requests alone must not trigger paid Tesla calls.
 
 ## Physical output checks, still disconnected from mains

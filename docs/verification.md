@@ -387,3 +387,35 @@ The audit also identified synchronous web password verification delaying other
 HTTP handlers. The control task remains independent, but moving login verification
 out of the HTTP handler is required before claiming web OFF responsiveness during
 another login. Physical commissioning and valid live GPS acceptance remain open.
+
+## Concurrent login and OFF repair 2026-09-23
+
+Password verification now uses one bounded 6 KiB worker and an ESP-IDF asynchronous
+request. Additional login attempts receive 429 while it is active. The worker wipes
+the password and queues completion back to HTTPD, retaining single-task ownership
+of session/cookie state. Allocation, task creation and dispatch failures inhibit
+output; completed async requests release their socket/request storage. Existing
+sessions can issue OFF while another login's PBKDF2 work is running.
+
+The installed image passed the same trusted-HTTPS, source-HTML, authentication,
+Origin, CSRF, GET, request-size and login-throttling checks. An authenticated OFF
+completed in **0.859 seconds end-to-end**, including its separate HTTPS connection
+and persistence, while a competing wrong-password login remained in progress for
+**9.234 seconds**. A parallel login was throttled, the wrong password returned 401,
+the worker finished, and the test session logged out. This measures request
+responsiveness with output already inhibited, not relay contact timing.
+
+The native client suite additionally exercises lease expiry while a fake transport
+has not returned, followed by timeout, transport or oversized-response failures.
+53 native tests with ASan/UBSan and 12 Python tests passed. ESP-IDF v5.5.2 target
+build and application-only flash verification passed: **929,072 bytes**, SHA-256
+`48ee2319bbc610b9fe97c6012540db6a60fe616f808839014c76a4a2b2609bd2`.
+
+Final USB checks at uptime 138 seconds confirmed DISABLED, uncommissioned, dry-run,
+OFF commanded, intact profile, usable token journal, Wi-Fi/UTC ready, no fault or
+allocation failure, 79,440 bytes free internal heap, 31,744-byte largest block,
+and **52 ms** maximum control-loop gap. No Tesla attempts occurred in this boot.
+All local test processes completed; no laptop polling job or server was left running.
+See [acceptance record](acceptance.md) for the full requirement audit and remaining
+live GPS/physical checks. No arming, relay ON, vehicle command or billing change
+was performed.

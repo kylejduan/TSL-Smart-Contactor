@@ -139,7 +139,12 @@ The device serves only HTTPS `/`, `POST /api/login`, authenticated
 Sessions use 256-bit random IDs, a Secure/HttpOnly/SameSite=Strict cookie, exact
 configured Origin, an independent 256-bit CSRF token and a 15-minute monotonic
 expiry. Login throttling increases to five minutes. Passwords are salted PBKDF2
-SHA-256 (100,000 iterations). No state-changing GET, CORS, arbitrary GPIO, shell,
+SHA-256 (100,000 iterations). A single bounded password-verification task uses
+ESP-IDF asynchronous requests; a concurrent login is throttled. Completion returns
+to the HTTP server task, which exclusively owns session/cookie state. An existing
+administrator session can issue OFF during password verification. Password buffers
+are wiped after verification; allocation/task/dispatch failures inhibit output.
+No state-changing GET, CORS, arbitrary GPIO, shell,
 file endpoint or URL fetcher exists. UI text is rendered with `textContent`.
 
 Only one administrator session exists; a new login replaces it. The browser stores

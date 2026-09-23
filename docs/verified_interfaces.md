@@ -127,6 +127,7 @@ versions come from that release's `tools/tools.json`, not a rolling Arduino core
 - [ESP TLS](https://docs.espressif.com/projects/esp-idf/en/v5.5.2/esp32s3/api-reference/protocols/esp_tls.html): nonblocking TLS with certificate bundle, hostname/SNI verification and time validation. No insecure certificate option, redirects, arbitrary URL input or proxy is provided.
 - [NVS](https://docs.espressif.com/projects/esp-idf/en/v5.5.2/esp32s3/api-reference/storage/nvs_flash.html): blob replacement + checked commit, application CRC/version and pending provisioning marker. No erase-on-error behavior. Actual brownout testing is still needed.
 - [Task watchdog](https://docs.espressif.com/projects/esp-idf/en/v5.5.2/esp32s3/api-reference/system/wdts.html): the control task subscribes and feeds only after processing deadlines and GPIO. Silent reset/core-dump omission avoids credential dumps.
+- [HTTP server asynchronous requests](https://docs.espressif.com/projects/esp-idf/en/v5.5.2/esp32s3/api-reference/protocols/esp_http_server.html): `httpd_req_async_handler_begin/complete` retain and release a request while a bounded worker verifies a password. `httpd_queue_work` returns session mutation to the server task. Contracts were checked against the pinned SDK headers/source and exercised on hardware.
 - Local TLS uses an explicitly generated per-device certificate and local CA. Ordinary NVS is **not encrypted**; secure boot, flash encryption and irreversible eFuses are not enabled automatically.
 
 Additional SDK verification on 2026-09-23:

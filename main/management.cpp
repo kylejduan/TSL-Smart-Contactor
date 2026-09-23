@@ -12,6 +12,14 @@ namespace {
 const Profile* profile=nullptr;
 Session session;
 char csrf[65]={};
+// One bounded verification job; sessions are still owned only by the HTTP task.
+struct LoginJob {
+    httpd_req_t* request=nullptr;
+    char password[129]={};
+    std::atomic<bool> verified{false};
+};
+LoginJob login_job;
+std::atomic<bool> login_busy{false};
 extern "C" const unsigned char html_start[] asm("_binary_index_html_start");
 extern "C" const unsigned char html_end[] asm("_binary_index_html_end");
 void headers(httpd_req_t* r) {
@@ -76,19 +84,56 @@ esp_err_t root(httpd_req_t* r) {
     headers(r);httpd_resp_set_type(r,"text/html; charset=utf-8");
     return httpd_resp_send(r,reinterpret_cast<const char*>(html_start),html_end-html_start-1);
 }
+void finish_login(void*) {
+    auto* r=login_job.request;
+    if(!login_job.verified) {
+        session.failed_login(now_ms());reply(r,"{\"error\":\"login_failed\"}","401 Unauthorized");
+    } else {
+        char id[65]={},header[192]={};random_hex(id);random_hex(csrf);
+        session.establish(id,csrf,now_ms());
+        std::snprintf(header,sizeof header,"__Host-id=%s; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=900",id);
+        httpd_resp_set_hdr(r,"Set-Cookie",header);
+        if(reply(r,"{\"ok\":true}")!=ESP_OK)session.clear();
+        mbedtls_platform_zeroize(id,sizeof id);mbedtls_platform_zeroize(header,sizeof header);
+    }
+    if(httpd_req_async_handler_complete(r)!=ESP_OK)fail("login_complete");
+    login_job.request=nullptr;login_busy=false;
+}
+void verify_login(void*) {
+    login_job.verified=verify_password(*profile,login_job.password);
+    mbedtls_platform_zeroize(login_job.password,sizeof login_job.password);
+    // Publish the result in HTTPD context so no session or cookie state is raced.
+    if(httpd_queue_work(login_job.request->handle,finish_login,nullptr)!=ESP_OK) {
+        fail("login_result_queue");
+        httpd_req_async_handler_complete(login_job.request);
+        login_job.request=nullptr;login_busy=false;
+    }
+    vTaskDelete(nullptr);
+}
 esp_err_t login(httpd_req_t* r) {
     if(!same_origin(r))return reply(r,"{\"error\":\"origin\"}","403 Forbidden");
-    if(!session.login_allowed(now_ms()))return reply(r,"{\"error\":\"login_throttled\"}","429 Too Many Requests");
-    char input[512]={},password[129]={};Json j;
+    if(login_busy || !session.login_allowed(now_ms()))return reply(r,"{\"error\":\"login_throttled\"}","429 Too Many Requests");
+    char input[512]={};Json j;
     bool ok=body(r,input,sizeof input) && j.parse(input) &&
-        j.string(j.get(0,"password"),password,sizeof password) && verify_password(*profile,password);
-    mbedtls_platform_zeroize(input,sizeof input);mbedtls_platform_zeroize(password,sizeof password);
-    if(!ok) {session.failed_login(now_ms());return reply(r,"{\"error\":\"login_failed\"}","401 Unauthorized");}
-    char id[65]={},header[192]={};random_hex(id);random_hex(csrf);
-    session.establish(id,csrf,now_ms());
-    std::snprintf(header,sizeof header,"__Host-id=%s; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=900",id);
-    httpd_resp_set_hdr(r,"Set-Cookie",header);
-    return reply(r,"{\"ok\":true}");
+        j.string(j.get(0,"password"),login_job.password,sizeof login_job.password);
+    mbedtls_platform_zeroize(input,sizeof input);
+    if(!ok) {
+        mbedtls_platform_zeroize(login_job.password,sizeof login_job.password);
+        session.failed_login(now_ms());return reply(r,"{\"error\":\"login_failed\"}","401 Unauthorized");
+    }
+    if(httpd_req_async_handler_begin(r,&login_job.request)!=ESP_OK) {
+        mbedtls_platform_zeroize(login_job.password,sizeof login_job.password);
+        fail("login_request_allocation");return reply(r,"{\"error\":\"login_unavailable\"}","503 Service Unavailable");
+    }
+    login_busy=true;
+    if(xTaskCreate(verify_login,"password_check",6144,nullptr,2,nullptr)!=pdPASS) {
+        mbedtls_platform_zeroize(login_job.password,sizeof login_job.password);
+        fail("login_task");
+        reply(login_job.request,"{\"error\":\"login_unavailable\"}","503 Service Unavailable");
+        httpd_req_async_handler_complete(login_job.request);
+        login_job.request=nullptr;login_busy=false;
+    }
+    return ESP_OK;
 }
 esp_err_t status(httpd_req_t* r) {
     if(!auth(r,false))return reply(r,"{\"error\":\"authentication_required\"}","401 Unauthorized");
