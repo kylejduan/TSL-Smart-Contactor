@@ -49,6 +49,8 @@ TEST(client_401_exactly_one_refresh_and_one_retry) {
     Fixture f;f.io.replies={{Endpoint::Refresh,200,token},{Endpoint::Status,401,"{}"},
         {Endpoint::Refresh,200,token},{Endpoint::Status,401,"{}"}};auto o=fix(epoch);
     REQUIRE(f.client.poll(config(),1,o)==Error::Authentication);REQUIRE(f.io.requests.size()==4);
+    auto d=f.client.diagnostics();REQUIRE(d.attempts_this_boot[0]==2);
+    REQUIRE(d.attempts_this_boot[1]==0);REQUIRE(d.attempts_this_boot[2]==2);
 }
 TEST(client_fetches_location_only_after_online) {
     Fixture f;f.io.replies={{Endpoint::Refresh,200,token},{Endpoint::Status,200,online},{Endpoint::Location,200,location}};
@@ -108,4 +110,19 @@ TEST(client_caps_prevent_transmission_and_uninitialized_clock_blocks_tls) {
     Fixture f;auto c=config();c.daily_cap=1;f.io.replies={{Endpoint::Refresh,200,token}};auto o=fix(epoch);
     REQUIRE(f.client.poll(c,1,o)==Error::Budget);REQUIRE(f.io.requests.size()==1);
     Fixture g;g.io.time_ready=false;REQUIRE(g.client.poll(config(),1,o)==Error::Clock);REQUIRE(g.io.requests.empty());
+    auto d=f.client.diagnostics();REQUIRE(d.attempts_this_boot[0]==0);
+    REQUIRE(d.attempts_this_boot[1]==0);REQUIRE(d.attempts_this_boot[2]==1);
+    REQUIRE(g.client.diagnostics().attempts_this_boot[2]==0);
+}
+TEST(request_attempts_count_failures_but_not_refused_storage_or_reboot_credit) {
+    Fixture f;f.io.replies={{Endpoint::Refresh,200,token},{Endpoint::Status,503,"{}"}};
+    auto o=fix(epoch);REQUIRE(f.client.poll(config(),1,o)==Error::Server);
+    auto d=f.client.diagnostics();REQUIRE(d.attempts_this_boot[0]==1);REQUIRE(d.attempts_this_boot[2]==1);
+    f.store.fail=true;
+    REQUIRE(f.client.refresh(config())==Error::Storage);
+    REQUIRE(f.client.diagnostics().attempts_this_boot[2]==1);
+    f.store.fail=false;
+    FleetClient reboot(f.store,f.io,"synthetic-client");REQUIRE(reboot.initialize()==Error::None);
+    REQUIRE(reboot.diagnostics().attempts_this_boot[0]==0);
+    REQUIRE(reboot.counts().daily[0]>=d.attempts_this_boot[0]);
 }

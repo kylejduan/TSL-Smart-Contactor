@@ -12,6 +12,11 @@ Error FleetClient::initialize() {
     auto e=journal_.load();
     return budget_.load()!=Error::None ? Error::Storage : e;
 }
+void FleetClient::request(Endpoint endpoint,const Config& cfg,const char* access,const char* form,HttpResult& result) {
+    auto& count=attempts_[static_cast<size_t>(endpoint)];
+    if(count<UINT32_MAX)++count;
+    io_.request(endpoint,cfg,access,form,result);
+}
 Error FleetClient::account(Endpoint endpoint,const Config& cfg) {
     if(!io_.ready())return Error::Clock;
     time_t utc=io_.utc();tm t{};
@@ -28,7 +33,7 @@ Error FleetClient::refresh(const Config& cfg) {
         journal_.release();return Error::Malformed;
     }
     std::snprintf(form,sizeof form,"grant_type=refresh_token&client_id=%s&refresh_token=%s",id,token);
-    HttpResult result;io_.request(Endpoint::Refresh,cfg,nullptr,form,result);
+    HttpResult result;request(Endpoint::Refresh,cfg,nullptr,form,result);
     diagnostic_={"refresh",error_name(result.error),result.status};
     retry_=std::max(retry_,result.retry_s);wipe(form,sizeof form);wipe(token,sizeof token);
     e=result.error;Tokens tokens;
@@ -58,7 +63,7 @@ Error FleetClient::get(Endpoint endpoint,const Config& cfg,Observation& o) {
         // OFF or a home/VIN change also prevents a queued 401 retry from starting.
         if(!io_.current(o.generation))return Error::Unavailable;
         auto e=account(endpoint,cfg);if(e!=Error::None)return e;
-        HttpResult result;io_.request(endpoint,cfg,access_,nullptr,result);
+        HttpResult result;request(endpoint,cfg,access_,nullptr,result);
         diagnostic_={endpoint==Endpoint::Location?"location":"status",error_name(result.error),result.status};
         retry_=std::max(retry_,result.retry_s);
         if(result.error==Error::Authentication && attempt==0) {
@@ -68,7 +73,8 @@ Error FleetClient::get(Endpoint endpoint,const Config& cfg,Observation& o) {
         }
         if(result.error!=Error::None)return result.error;
         return parse_vehicle(result.body.view(),cfg.vin,endpoint==Endpoint::Location,o,
-                             &diagnostic_.detail,&diagnostic_.gps_source_value);
+                             &diagnostic_.detail,&diagnostic_.gps_source_value,
+                             diagnostic_.gps_source_text,sizeof diagnostic_.gps_source_text);
     }
     return Error::Authentication;
 }

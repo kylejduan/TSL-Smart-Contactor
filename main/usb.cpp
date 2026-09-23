@@ -44,7 +44,7 @@ void diagnostics() {
         "\"fault_source\":\"%s\",\"failed_allocation_bytes\":%u,\"control_max_gap_ms\":%u,"
         "\"utc_synced\":%s,\"utc_ready\":%s,\"utc_epoch_s\":%lld,"
         "\"sntp_enabled\":%s,\"gateway\":\"" IPSTR "\",\"dns\":\"" IPSTR "\","
-        "\"fleet_endpoint\":\"%s\",\"fleet_http_status\":%d,\"fleet_detail\":\"%s\",\"gps_source_value\":%.17g,"
+        "\"fleet_endpoint\":\"%s\",\"fleet_http_status\":%d,\"fleet_detail\":\"%s\",\"gps_source_value\":%.17g,\"gps_source_text\":\"%s\","
         "\"wifi_connected\":%s,\"ip\":\"" IPSTR "\",\"station_mac\":\"%02x:%02x:%02x:%02x:%02x:%02x\"}",
         read_name(raw),valid?"true":"false",read_name(marker),pending?"true":"false",
         token==Error::None?"usable":token==Error::Reauthorize?"missing_or_reauthorize":"error",
@@ -54,7 +54,7 @@ void diagnostics() {
         unsigned(failed_allocation_bytes.load()),unsigned(control_max_gap_ms.load()),
         utc_synced?"true":"false",state.utc_ok?"true":"false",static_cast<long long>(time(nullptr)),
         esp_sntp_enabled()?"true":"false",IP2STR(&ip.gw),IP2STR(&dns.ip.u_addr.ip4),
-        state.fleet.endpoint,state.fleet.http_status,state.fleet.detail,state.fleet.gps_source_value,
+        state.fleet.endpoint,state.fleet.http_status,state.fleet.detail,state.fleet.gps_source_value,state.fleet.gps_source_text,
         wifi_connected?"true":"false",IP2STR(&ip.ip),mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
     mbedtls_platform_zeroize(&journal,sizeof journal);
     usb_serial_jtag_write_bytes(b,std::strlen(b),pdMS_TO_TICKS(1000));

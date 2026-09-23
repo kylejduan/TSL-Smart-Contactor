@@ -28,9 +28,10 @@ Error http_error(int s) {
     if(s>=300 && s<400) return Error::Redirect;
     return Error::Malformed;
 }
-Error parse_vehicle(std::string_view body, const char* vin, bool location, Observation& o,const char** detail,double* gps_source_value) {
+Error parse_vehicle(std::string_view body, const char* vin, bool location, Observation& o,const char** detail,double* gps_source_value,char* gps_source_text,size_t source_capacity) {
     if(detail)*detail="none";
     if(gps_source_value)*gps_source_value=-1;
+    if(gps_source_text && source_capacity)gps_source_text[0]=0;
     auto reject=[&](const char* reason) {
         if(detail)*detail=reason;
         return Error::Malformed;
@@ -58,6 +59,7 @@ Error parse_vehicle(std::string_view body, const char* vin, bool location, Obser
     int source=j.get(d,"gps_as_of");
     if(source<0)return reject("gps_as_of_missing");
     if(j.is(source,Json::Type::Null))return reject("gps_as_of_null");
+    j.number_text(source,gps_source_text,source_capacity);
     double seconds=0;
     if(!j.number(source,seconds))return reject("gps_as_of_not_numeric");
     if(gps_source_value)*gps_source_value=seconds;
