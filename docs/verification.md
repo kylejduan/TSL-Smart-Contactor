@@ -349,3 +349,41 @@ intact saved profile, usable token journal, no fault or failed allocation, and
 Polling is left DISABLED. Fresh GPS acceptance, COM–NO continuity/polarity,
 boot/reset pulses, injected watchdog/brownout behavior, actual contactor operation
 and mains/electrical approval remain outstanding. GPIO OFF is not voltage feedback.
+
+## Original GPS text and local security audit 2026-09-23
+
+A bounded owner-authorized live check captured only the original JSON number token
+for `drive_state.gps_as_of`: `-823208397`. The parsed value matched exactly.
+The selected VIN and coordinate checks passed, status was ONLINE and location
+HTTP status was 200, but source time remained invalid. This rules out a signed or
+floating-point conversion error in this parser for that response. No conversion
+or receipt-time fallback was added. The helper acknowledged DISABLED afterward;
+USB confirmed uncommissioned, dry-run, OFF commanded, no fault and a 65 ms maximum
+control gap. Repeated identical API requests are not a remedy for this upstream
+source-time incompatibility.
+
+Diagnostics now preserve only bounded JSON numeric grammar (maximum 63 characters)
+as `gps_source_text`, alongside the parsed value. Synthetic tests verify exact
+notation, negative rejection, null/string exclusion and buffer limits. Separate
+RAM counters expose actual transport attempts per endpoint this boot; durable
+four-request reservations still enforce spending caps across reboot. Tests cover
+401 retries, failures, budget/storage refusals and reboot accounting.
+
+52 native tests with ASan/UBSan, 12 Python tests and embedded JavaScript syntax
+passed. ESP-IDF v5.5.2 build and application-only flash hash verification passed:
+928,272 bytes, SHA-256
+`055c1139ca785dd23088521ac0235cae25acefab6f12b767be15217c6963bc7a`.
+
+On the installed image, normal Windows certificate/hostname verification passed;
+served HTML matched source. Signed-out status/action, wrong Origin at login/action,
+missing/wrong CSRF, state-changing GET and oversized action requests were rejected.
+A wrong password returned 401, an immediate retry was throttled with 429, and a
+subsequent correct login passed. The helper logged out. Final authenticated status
+was DISABLED, uncommissioned, dry-run, OFF commanded, Wi-Fi/UTC ready, polling idle,
+and zero Fleet attempts this boot. These client-side certificate checks do not
+substitute for negative outbound-TLS tests on the ESP32.
+
+The audit also identified synchronous web password verification delaying other
+HTTP handlers. The control task remains independent, but moving login verification
+out of the HTTP handler is required before claiming web OFF responsiveness during
+another login. Physical commissioning and valid live GPS acceptance remain open.

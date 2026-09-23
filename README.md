@@ -6,9 +6,10 @@ over Wi-Fi and explicitly commands GPIO47 HIGH/LOW. A separate control task keep
 OFF and authorization deadlines independent of network requests.
 
 **Development status:** source, offline tests and ESP32-S3 build are provided.
-Firmware has been flashed over native Windows USB; hello/status and post-reset
-inhibited startup passed. Relay/contact measurements and live Tesla integration
-remain unverified. See [verification evidence](docs/verification.md) and the mandatory
+Firmware is installed over native Windows USB. Wi-Fi, trusted local HTTPS,
+onboarding, automatic token rotation and live read-only status/location requests
+have passed. AUTO acceptance remains blocked: the live GPS source timestamp is
+negative and fails validation. Relay/contact measurements remain unverified. See [verification evidence](docs/verification.md) and the mandatory
 [USB-only bench checklist](docs/bench_checklist.md). It ships **uncommissioned,
 DISABLED and dry-run**. Arming and physical-output enablement are separate USB
 operations; both leave DISABLED selected.
@@ -84,7 +85,8 @@ uses the actual `/dev/ttyACM…` port; give your user serial-port permission as 
 The helper does not flash devices or automatically retry a token handoff. No secret
 is accepted through a command-line flag. Run it from an interactive terminal.
 Native Windows USB hello/status and firmware flashing have been tested on a board.
-Credential provisioning and live onboarding remain separate verification steps.
+Credential provisioning and live onboarding passed; fresh GPS acceptance and
+physical commissioning remain separate verification steps.
 
 Before provisioning, list nearby **2.4 GHz** networks with
 `python tools/onboard.py usb --port COM5 wifi_scan` (substitute the actual port).

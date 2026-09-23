@@ -15,6 +15,7 @@ public:
     bool string(int token, char* dst, size_t capacity) const;
     bool equal(int token, std::string_view value) const;
     bool number(int token, double& value) const;
+    bool number_text(int token, char* dst, size_t capacity) const;
     bool integer(int token, int64_t& value) const;
     bool boolean(int token, bool& value) const;
     bool is(int token, Type type) const;

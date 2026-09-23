@@ -151,10 +151,19 @@ bool Json::equal(int i, std::string_view s) const {
     return is(i,Type::String) && input_.substr(tokens_[i].start,tokens_[i].len)==s;
 }
 bool Json::number(int i, double& v) const {
-    if (!is(i, Type::Number) || tokens_[i].len > 63) return false;
-    char b[64] = {}; std::memcpy(b,input_.data()+tokens_[i].start,tokens_[i].len);
+    char b[64] = {};
+    if (!number_text(i,b,sizeof b)) return false;
     errno=0; char* end=nullptr; v=std::strtod(b,&end);
     return !errno && end && !*end && std::isfinite(v);
+}
+bool Json::number_text(int i, char* dst, size_t capacity) const {
+    if (!dst || !capacity) return false;
+    dst[0]=0;
+    if (!is(i,Type::Number) || tokens_[i].len>=capacity) return false;
+    // Only the JSON number grammar is exposed, never strings or arbitrary body text.
+    std::memcpy(dst,input_.data()+tokens_[i].start,tokens_[i].len);
+    dst[tokens_[i].len]=0;
+    return true;
 }
 bool Json::integer(int i, int64_t& v) const {
     if (!is(i, Type::Number)) return false;

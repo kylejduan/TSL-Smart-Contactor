@@ -39,7 +39,7 @@ DISABLED and dry-run. The software cannot independently verify your measurement.
 
 ## Dry-run policy and authentication
 
-- [ ] Run the native suite with sanitizers and the Python setup suite. Its synthetic
+- [x] Run the native suite with sanitizers and the Python setup suite. Its synthetic
   HOME/AWAY, sleeping, expired, malformed, clock-jump and late-response transitions
   use the production policy/client/parser, with fake GPIO decisions/storage/time.
   They cannot enter the physical firmware transport or energize the real relay.

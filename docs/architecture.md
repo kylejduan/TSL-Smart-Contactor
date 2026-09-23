@@ -126,6 +126,9 @@ USB transaction inhibits boot until explicitly reprovisioned.
 Usage reserves blocks of four calls per endpoint before network attempts. A reboot
 consumes leftover reservation credit, preventing cap evasion by repeated resets.
 UTC day/month counters never roll backward. Estimates count failed attempts too.
+Separate saturating RAM counters report actual transport attempts per endpoint in
+the current boot, including 401 retries and failures but excluding requests refused
+by the budget or storage checks. They do not replace durable budget reservations.
 VIN/home and policy changes do not reset accounting. The request caps are additional
 local limits; Tesla billing remains authoritative.
 
@@ -147,7 +150,10 @@ Status and USB diagnostics also retain the last Fleet endpoint, HTTP status and
 a fixed parse-failure label. Missing/null GPS source time is distinguished from
 invalid timestamp units and missing coordinates. The numeric GPS source field is
 available as `gps_source_value` in RAM diagnostics (`-1` before a numeric source
-has been parsed); coordinates and arbitrary upstream text remain excluded.
+has been parsed). `gps_source_text` preserves at most 63 characters of the original
+JSON number token, before numeric conversion, or an empty string if unavailable.
+Only validated numeric grammar is copied; coordinates, string values and arbitrary
+upstream text remain excluded.
 Whole GPS seconds encoded with decimal/exponent notation retain the same source
 value and lease deadline. Successful normalization reports `gps_as_of_numeric_seconds`;
 fractional values, millisecond-scale values and non-numeric types remain rejected.

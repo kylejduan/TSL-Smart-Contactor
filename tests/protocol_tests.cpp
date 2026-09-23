@@ -58,6 +58,25 @@ TEST(gps_whole_second_json_number_notation_keeps_exact_source_deadline) {
         REQUIRE(p.tick(899999).auto_home);REQUIRE(!p.tick(900000).auto_home);
     }
 }
+TEST(gps_wire_diagnostic_preserves_only_bounded_numeric_text) {
+    for(const char* wire:{"-823000000.0","1.8e9","1800000000","1800000000000e-3"}) {
+        Observation o;double parsed=0;char text[64]={};
+        auto result=parse_vehicle(body(std::string("\"latitude\":0,\"longitude\":0,\"gps_as_of\":")+wire),
+                                  config().vin,true,o,nullptr,&parsed,text,sizeof text);
+        REQUIRE(std::string(text)==wire);
+        if(wire[0]=='-') {REQUIRE(result==Error::Malformed);REQUIRE(o.kind==Evidence::Unknown);REQUIRE(parsed<0);}
+        else {REQUIRE(result==Error::None);REQUIRE(o.source_s==epoch);}
+    }
+    for(const auto& wire:{std::string("null"),std::string("\"private upstream text\""),std::string(80,'9')}) {
+        Observation o;char text[64]="old value";
+        REQUIRE(parse_vehicle(body("\"latitude\":0,\"longitude\":0,\"gps_as_of\":"+wire),
+                              config().vin,true,o,nullptr,nullptr,text,sizeof text)==Error::Malformed);
+        REQUIRE(text[0]==0);
+    }
+    Json j;char small[3]="xx";REQUIRE(j.parse("123"));
+    REQUIRE(!j.number_text(0,small,sizeof small));REQUIRE(small[0]==0);
+    REQUIRE(!j.number_text(0,nullptr,0));
+}
 TEST(json_bounds_duplicates_and_hostile_input) {
     Json j;
     for(auto s:{"{\"vin\":1,\"vin\":2}","{\"v\\u0069n\":1}","[01]","[NaN]","{}garbage","{\"a\":}","[1,]","\"unterminated","[1e]"})REQUIRE(!j.parse(s));

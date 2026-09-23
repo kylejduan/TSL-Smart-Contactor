@@ -1,7 +1,7 @@
 # Verified interfaces
 
-Reviewed **2026-09-22 to 2026-09-23**. These are public documents and downloadable vendor
-examples, not measurements of the owner's board or a live Tesla integration.
+Reviewed **2026-09-22 to 2026-09-23**. Primary-source findings are separated below from board measurements and live
+integration observations. Vendor examples alone do not verify an installed system.
 Web documentation is unversioned unless noted. Recheck before changing the parser,
 board definition, regions, scopes or pricing.
 
@@ -134,6 +134,7 @@ Additional SDK verification on 2026-09-23:
 - [ESP-NETIF SNTP lifecycle](https://docs.espressif.com/projects/esp-idf/en/v5.5.2/esp32s3/api-reference/network/esp_netif_programming.html#sntp-service) recommends starting after network connection; starting earlier can trigger retry backoff. The firmware initializes without starting, then starts/restarts on `IP_EVENT_STA_GOT_IP`.
 - The pinned SDK's `components/lwip/port/include/lwipopts.h` defines the reserved DNS index as `DNS_MAX_SERVERS - 1`. Its [lwIP DHCP implementation](https://github.com/espressif/esp-lwip/blob/fd432e4ee2cfb7f7f1c7eb7227e0173412e7b84e/src/core/ipv4/dhcp.c#L800) skips that slot even when fallback support is disabled. The project now allocates two slots for one usable DHCP resolver and an unused reserved slot, with a compile-time guard against a one-slot configuration. This is an SDK-specific implementation constraint, not a Tesla requirement.
 
-No real vehicle credentials, private keys, paid API calls, hardware flashing,
-relay actuation, mains measurements or Tesla billing changes were performed during
-development. Fixtures are synthetic; see [verification](verification.md).
+The initial offline development used synthetic fixtures. Subsequent owner-authorized
+USB flashing, credential provisioning and live read-only API checks are recorded in
+[verification](verification.md). No relay actuation, vehicle commands, mains
+measurements or Tesla billing changes have been performed.
