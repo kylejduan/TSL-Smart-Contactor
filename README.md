@@ -86,6 +86,10 @@ Windows operation is implemented but was not tested on physical Windows USB.
 
 ## One-time Tesla/domain setup
 
+Set up public DNS and HTTPS **before** submitting the application's domain fields.
+The [Vercel hosting guide](docs/hosting.md) and `hosting/` static site can be deployed
+before you have a Tesla client ID. Avoid `tesla` in the application hostname.
+
 1. Create/verify your Tesla developer account and application using the
    [official onboarding procedure](https://developer.tesla.com/docs/fleet-api/getting-started/what-is-fleet-api).
    Administrative approval/domain access remain owner-operated steps. Request
