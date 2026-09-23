@@ -191,3 +191,18 @@ ESP-IDF v5.5.2 target build passed; application 924,304 bytes, SHA-256
 Application-only flashing passed the esptool hash check. A private NVS backup was
 retained before firmware changes; saved credentials survived. All 46 native and
 12 Python tests passed again. Physical relay/contactor operation remains untested.
+
+## Reserved address and direct HTTPS 2026-09-23
+
+The owner identified another device occupying the intended address and resolved
+the reservation conflict, then restarted the router. The controller reconnected
+automatically and obtained the intended reserved address via DHCP. No static IP
+was forced, no TLS identity changed, and no credential re-entry was needed.
+Direct HTTPS using the existing local CA and the reserved IP passed certificate
+chain/hostname verification: GET `/` returned 200 and exactly matched the firmware
+HTML; unauthenticated GET `/api/status` returned 401. USB confirmed the intact
+profile/token records, cleared incomplete marker, no critical fault and OFF
+commanded with DISABLED, uncommissioned and dry-run still selected. At 704 seconds
+uptime, maximum measured control-loop gap remained 51 ms through router loss and
+reconnection. Authenticated browser login, live Fleet polling/refresh and physical
+relay measurements remain separate checks.
