@@ -92,7 +92,7 @@ def run(root, port):
 
 def usb(args):
     request = {"op": args.command}
-    if args.command not in {"hello", "status"}:
+    if args.command not in {"hello", "status", "wifi_scan"}:
         request["password"] = hidden("Local administrator password: ")
     confirmations = {
         "arm": "USB_BENCH_POLARITY_AND_STARTUP_VERIFIED",
@@ -110,7 +110,11 @@ def usb(args):
         if input("This bypasses Tesla presence. Type TIMED_ON to authorize: ") != "TIMED_ON":
             raise SetupError("Canceled.")
         request["seconds"] = args.seconds
-    print(json.dumps(usb_exchange(args.port, request), indent=2))
+    result = usb_exchange(args.port, request)
+    if args.command == "wifi_scan" and result.get("ok"):
+        for network in result["networks"]:
+            network["ssid"] = bytes.fromhex(network["ssid_hex"]).decode("utf-8", errors="backslashreplace")
+    print(json.dumps(result, indent=2))
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -121,7 +125,7 @@ def main():
     runtime.add_argument("--port", required=True)
     command = commands.add_parser("usb", help="Explicit USB management, no flashing")
     command.add_argument("--port", required=True)
-    command.add_argument("command", choices=["hello", "status", "off", "auto", "timed_on", "arm", "enable_output", "reboot"])
+    command.add_argument("command", choices=["hello", "status", "wifi_scan", "off", "auto", "timed_on", "arm", "enable_output", "reboot"])
     command.add_argument("--seconds", type=int, default=3600)
     args = parser.parse_args()
     try:

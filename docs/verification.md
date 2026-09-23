@@ -108,3 +108,16 @@ GPIO polarity, boot/reset pulses, power removal, watchdog fault injection and
 electrical safety remain unverified. Tesla consent/registration, credential handoff,
 Wi-Fi, local HTTPS and real token refresh also remain unverified at this checkpoint.
 USB handles were closed after each command; no USB monitor was left running.
+
+## USB Wi-Fi scan 2026-09-23
+
+Added an unprovisioned-only passive USB scan using ESP-IDF Wi-Fi APIs. The target
+build passed with the same v5.5.2 SDK; the application was 908,992 bytes (SHA-256
+`efa9d4c4301fb3598b6a88fac0c4f9a40290169c3fc7f52707a66361222d603f`). Only the
+application partition was updated; esptool verified its write hash. The physical
+board returned 16 access points and indicated that additional results were omitted.
+Network names and addresses are intentionally excluded from this public record.
+The 46 native tests and 12 Python tests passed, including synthetic SSID terminal
+escaping and no-retry handling. Scan timeout/fault injection remain untested on
+hardware. A subsequent credential handoff timed out and the board reported a local
+fault; that separate provisioning failure requires diagnosis before commissioning.

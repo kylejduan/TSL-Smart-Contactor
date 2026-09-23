@@ -86,6 +86,17 @@ is accepted through a command-line flag. Run it from an interactive terminal.
 Native Windows USB hello/status and firmware flashing have been tested on a board.
 Credential provisioning and live onboarding remain separate verification steps.
 
+Before provisioning, list nearby **2.4 GHz** networks with
+`python tools/onboard.py usb --port COM5 wifi_scan` (substitute the actual port).
+This USB-only passive scan needs no credentials and never joins a network. It
+returns up to 16 access points, strongest first, with SSID, RSSI in dBm, channel
+and the ESP-IDF authentication-mode number. Duplicate names can represent multiple
+access points; an empty name can represent a hidden network. Raw SSID bytes are
+also hex encoded, and terminal control characters are escaped. The scan waits at
+most eight seconds for completion and is limited to one attempt per 15 seconds.
+It is rejected once a profile exists, during provisioning, or on a local fault;
+it does not interrupt a configured device's Wi-Fi. The ESP32-S3 cannot use 5/6 GHz.
+
 ## One-time Tesla/domain setup
 
 Set up public DNS and HTTPS **before** submitting the application's domain fields.

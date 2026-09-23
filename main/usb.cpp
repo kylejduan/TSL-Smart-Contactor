@@ -1,4 +1,5 @@
 #include "storage.hpp"
+#include "network.hpp"
 #include "driver/usb_serial_jtag.h"
 #include "esp_random.h"
 #include "esp_system.h"
@@ -70,6 +71,10 @@ void process(const char* input) {
             s.ready?"true":"false",s.config.commissioned?"true":"false",s.config.disabled?"true":"false",
             s.config.dry_run?"true":"false",s.decision.commanded?"true":"false",critical_fault?"true":"false");
         send(b);return;
+    }
+    if(j.equal(op,"wifi_scan")) {
+        static char response[3072];
+        scan_unprovisioned_wifi(response,sizeof response);send(response);return;
     }
     if(j.equal(op,"provision")) {
         if(!provision(j)) {send("{\"ok\":false,\"error\":\"provision_failed_output_inhibited\"}");return;}
