@@ -141,3 +141,28 @@ were ready, trusted local HTTPS login completed in 0.661 seconds and reported
 No live Tesla request or relay energization was used for this budget check. Tesla's
 account-level spending limit and other applications' usage were not changed or
 verified here; the controller's local estimate remains pre-discount.
+
+## Password boundary review, 2026-09-24 UTC
+
+The fast-login profile stores a salted PBKDF2-SHA256-derived verifier, not the
+password or the browser-sent derived value. The browser sends the derived value
+only over per-device HTTPS; that value is reusable, so certificate validation is
+essential. The 256-bit random session cookie is Secure, HttpOnly, SameSite=Strict
+and expires after 15 minutes. State changes require the cookie, exact Origin and
+an independent CSRF token. Failed login attempts are throttled; the browser saves
+no password or derived material in persistent storage.
+
+This review closed the legacy HTTPS raw-password path after v1-to-v2 migration.
+The installed v2 controller rejected a synthetic raw-password request with 401
+in 0.816 seconds, without starting its slow PBKDF2 check. A subsequent normal
+derived-material login succeeded in 0.726 seconds over trusted HTTPS. Final status
+remained DISABLED, uncommissioned, dry-run, OFF commanded, without a fault or
+Fleet requests. The app-only flash hash was verified; NVS was preserved.
+
+The 100,000-iteration work factor is below [OWASP's current 600,000-iteration
+PBKDF2-HMAC-SHA256 recommendation](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
+for password databases. A unique, high-entropy
+16-128-byte administrator password and local-only access remain necessary. Plain
+NVS and unencrypted flash do not protect the verifier, Tesla token, Wi-Fi secret
+or TLS private key from someone with physical extraction access. A compromised
+browser, its trusted CA, or the local computer can also expose login material.

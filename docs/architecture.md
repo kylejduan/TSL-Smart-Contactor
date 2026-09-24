@@ -163,7 +163,9 @@ HTTPS; the ESP32 checks the verifier quickly. That transmitted result is a reusa
 password equivalent, so TLS certificate validation and secret handling remain
 essential. The first successful login to a v1 record atomically commits a v2
 profile without changing the user's password or Tesla token. USB password checks
-still perform PBKDF2 on the device. A single bounded password-verification task uses
+still perform PBKDF2 on the device. The HTTPS raw-password path is accepted only
+while a v1 record needs migration; a v2 profile rejects it before starting the
+costly device-side PBKDF2 computation. A single bounded password-verification task uses
 ESP-IDF asynchronous requests; a concurrent login is throttled. Completion returns
 to the HTTP server task, which exclusively owns session/cookie state. An existing
 administrator session can issue OFF during password verification. Password buffers

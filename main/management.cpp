@@ -168,7 +168,10 @@ esp_err_t login(httpd_req_t* r) {
     if(ok) {
         bool raw=j.string(j.get(0,"password"),login_job.password,sizeof login_job.password);
         bool derived=j.string(j.get(0,"material"),login_job.material,sizeof login_job.material);
-        ok=(raw!=derived) && (raw || derived);
+        // The slow raw-password path exists only to migrate a v1 profile.
+        // Reject it before starting PBKDF2 once the browser verifier is active.
+        ok=(raw!=derived) &&
+            ((raw && auth_mode.load()==1) || (derived && auth_mode.load()==2));
     }
     mbedtls_platform_zeroize(input,sizeof input);
     if(!ok) {
