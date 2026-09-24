@@ -98,6 +98,15 @@ the original `location_data` selector. No authoritative conversion for this valu
 was established. This is an unresolved compatibility boundary, not permission to
 substitute another timestamp or infer freshness from receipt time.
 
+A further owner-authorized check after driving still returned a negative source
+time. Its offset from the recorded board UTC differed from earlier samples; no
+fixed correction is justified. The optional `drive_state.timestamp` and
+`response.api_version` diagnostics are taken only when present in the response;
+their presence is not required or interpreted as GPS freshness. Tesla
+[developer support](https://developer.tesla.com/docs/fleet-api/support/contact)
+asks for request/response evidence and `x-txid`; the firmware now retains bounded
+request ID/date metadata for that purpose. See the dated verification record.
+
 ## Pricing and limits
 
 The expanded vehicle schema marks list/status `pricing_category: null`, and

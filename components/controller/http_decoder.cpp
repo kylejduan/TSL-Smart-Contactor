@@ -64,6 +64,20 @@ bool HttpDecoder::line() {
     else if(name=="retry-after") {
         if(v.size()>=sizeof retry_ || retry_[0])return fail();
         std::memcpy(retry_,v.data(),v.size());retry_[v.size()]=0;
+    } else if(name=="x-txid") {
+        bool valid=!saw_txid_ && !v.empty() && v.size()<sizeof txid_;
+        saw_txid_=true;txid_[0]=0;
+        for(unsigned char c:v)
+            valid=valid && ((c>='0' && c<='9') || (c>='a' && c<='z') ||
+                            (c>='A' && c<='Z') || c=='-' || c=='_' || c=='.' || c==':');
+        if(valid) {std::memcpy(txid_,v.data(),v.size());txid_[v.size()]=0;}
+    } else if(name=="date") {
+        bool valid=!saw_date_ && v.size()==29 && v[3]==',' && v.substr(25)==" GMT";
+        saw_date_=true;date_[0]=0;
+        for(unsigned char c:v)
+            valid=valid && ((c>='0' && c<='9') || (c>='a' && c<='z') ||
+                            (c>='A' && c<='Z') || c==' ' || c==',' || c==':');
+        if(valid) {std::memcpy(date_,v.data(),v.size());date_[v.size()]=0;}
     }
     return true;
 }

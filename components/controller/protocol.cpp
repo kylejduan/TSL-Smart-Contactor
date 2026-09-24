@@ -28,10 +28,11 @@ Error http_error(int s) {
     if(s>=300 && s<400) return Error::Redirect;
     return Error::Malformed;
 }
-Error parse_vehicle(std::string_view body, const char* vin, bool location, Observation& o,const char** detail,double* gps_source_value,char* gps_source_text,size_t source_capacity) {
+Error parse_vehicle(std::string_view body, const char* vin, bool location, Observation& o,const char** detail,double* gps_source_value,char* gps_source_text,size_t source_capacity,VehicleMetadata* metadata) {
     if(detail)*detail="none";
     if(gps_source_value)*gps_source_value=-1;
     if(gps_source_text && source_capacity)gps_source_text[0]=0;
+    if(metadata)*metadata={};
     auto reject=[&](const char* reason) {
         if(detail)*detail=reason;
         return Error::Malformed;
@@ -42,6 +43,10 @@ Error parse_vehicle(std::string_view body, const char* vin, bool location, Obser
     if(!j.is(r,Json::Type::Object))return reject("response_not_object");
     if(!j.string(j.get(r,"vin"), identity, sizeof identity) || std::strcmp(identity,vin)) return reject("vin_missing_or_mismatch");
     std::memcpy(o.vin,identity,sizeof identity);
+    if(metadata) {
+        int64_t version=0;
+        if(j.integer(j.get(r,"api_version"),version) && version<=10000)metadata->api_version=version;
+    }
     int state=j.get(r,"state");
     if(j.equal(state,"asleep")) o.vehicle=Vehicle::Asleep;
     else if(j.equal(state,"online")) o.vehicle=Vehicle::Online;
@@ -54,6 +59,7 @@ Error parse_vehicle(std::string_view body, const char* vin, bool location, Obser
     }
     int d=j.get(r,"drive_state");
     if(!j.is(d,Json::Type::Object))return reject("drive_state_missing_or_null");
+    if(metadata)j.number_text(j.get(d,"timestamp"),metadata->report_timestamp_text,sizeof metadata->report_timestamp_text);
     if(!j.number(j.get(d,"latitude"),o.lat) || !j.number(j.get(d,"longitude"),o.lon) ||
        std::abs(o.lat)>90 || std::abs(o.lon)>180)return reject("coordinates_missing_or_invalid");
     int source=j.get(d,"gps_as_of");

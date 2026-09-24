@@ -115,6 +115,9 @@ void request(Endpoint endpoint,const Config& cfg,const char* access,const char* 
         mbedtls_platform_zeroize(data,sizeof data);
     }
     r.status=decoder.status();
+    r.received_utc_s=time(nullptr);
+    std::strcpy(r.transaction_id,decoder.transaction_id());
+    std::strcpy(r.response_date,decoder.response_date());
     if(r.error==Error::None) {
         if(!decoder.done())r.error=Error::Malformed;
         else r.error=http_error(r.status);

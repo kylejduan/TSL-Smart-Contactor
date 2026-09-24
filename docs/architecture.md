@@ -107,6 +107,13 @@ Responses are capped at 16 KiB, JSON at depth 12/512 tokens, HTTP line at 1 KiB 
 combined header/chunk metadata at 8 KiB. Close-delimited, length-delimited and chunked
 responses work; ambiguous lengths, compression, oversize and truncation fail closed.
 
+Diagnostics retain a bounded, character-allowlisted `x-txid` and HTTP `Date`, the
+local response-completion UTC, optional numeric `response.api_version` and original
+`drive_state.timestamp` numeric text. Duplicate or unsafe diagnostic headers are
+omitted; they never change response acceptance. These fields reset per response,
+are exposed through authenticated status/physical USB, and cannot authorize HOME
+or replace `gps_as_of`. No arbitrary headers or response bodies are logged.
+
 One coordinated refresh and one retry are allowed per 401 request. Billing,
 permission, repeated 401, redirect and local-storage errors pause automatic polling.
 Authenticated check-now may deliberately retry after backoff; revoked token journals

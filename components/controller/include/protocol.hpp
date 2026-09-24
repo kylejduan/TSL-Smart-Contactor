@@ -10,10 +10,15 @@ enum class Error : uint8_t {
 };
 const char* error_name(Error e); // Only these fixed labels go to logs/status.
 Error http_error(int status);
+struct VehicleMetadata {
+    char report_timestamp_text[64]={}; // Diagnostic only, never a GPS freshness source.
+    int64_t api_version=-1;
+};
 // Optional detail is always a fixed literal, never upstream text or field values.
 Error parse_vehicle(std::string_view body, const char* vin, bool location, Observation& o,
                     const char** detail=nullptr,double* gps_source_value=nullptr,
-                    char* gps_source_text=nullptr,size_t source_capacity=0);
+                    char* gps_source_text=nullptr,size_t source_capacity=0,
+                    VehicleMetadata* metadata=nullptr);
 struct Tokens {
     char access[4097] = {}, refresh[2049] = {};
     uint32_t expires_s = 0;

@@ -427,3 +427,41 @@ invalid short-password login returned 401 rather than remaining stuck at the bus
 uncommissioned, dry-run, OFF commanded, no fault/allocation failure, 52 ms maximum
 control gap and no Fleet endpoint contacted in this boot. This is a bounded
 connection-cleanup check, not a network-denial-of-service guarantee.
+
+
+## Post-drive retry and support diagnostics 2026-09-23
+
+The owner reported driving and requested another check. A bounded read-only check
+saw ONLINE and location HTTP 200, but original GPS text was `-823242302`. Unlike
+earlier samples, the offset from the recorded board UTC had changed. Driving did
+not resolve the incompatibility; no fixed-offset correction is justified.
+
+The diagnostic update retains bounded `x-txid`, HTTP Date, local response-completion
+UTC, numeric `drive_state.timestamp` text and optional `response.api_version`.
+Unsafe/duplicate headers are omitted. These fields never feed GPS freshness or
+AUTO authorization. Tests cover fragmented/hostile headers, invalid GPS alongside
+current report metadata, and clearing metadata between endpoint responses.
+
+All **56 native tests** (ASan/UBSan, including parser mutations), **12 Python tests**,
+JavaScript syntax and `git diff --check` passed. ESP-IDF **v5.5.2** built an
+application of **947,440 bytes**, SHA-256
+`9256a5431ddeef9ecef2594bc08d6fdfae3a631a29f3373c01dbd890a8921ed6`.
+Application-only USB flashing at 0x30000 verified its hash, preserving NVS. Trusted
+local HTTPS served the exact embedded source HTML; authenticated status showed
+empty diagnostic metadata and zero request attempts before the next live check.
+The image contains official Fleet/auth hosts and neither legacy Owner API host.
+
+One additional bounded check captured HTTP 200, API version **95**, GPS source
+text **`-823241772`**, report timestamp **`1790214537078`**, HTTP Date
+**Thu, 24 Sep 2026 01:48:55 GMT**, and response-completion epoch **1790214535**.
+The request ID is retained in the private local report and an unsent support draft.
+The report time is near current UTC; that does not prove GPS fix freshness or
+locate the defect in the vehicle versus backend. One refresh, one status and one
+location attempt occurred in this boot. No wake/vehicle commands were issued.
+
+Authenticated OFF was acknowledged. Final USB: DISABLED, uncommissioned, dry-run,
+OFF commanded, no fault/allocation failure, intact profile, usable token journal,
+Wi-Fi/UTC ready; maximum control gap **51 ms**, free internal heap **79,252 bytes**,
+largest block **31,744 bytes**. No HOME lease was established. All validation
+processes completed, with no laptop polling process left running. Live GPS
+acceptance and supervised physical commissioning remain unresolved.

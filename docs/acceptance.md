@@ -24,8 +24,9 @@ validation passed. Original `gps_as_of` numeric text was negative, matching the
 parsed value exactly. That evidence cannot establish a source-anchored HOME lease.
 No other timestamp, unit guess, wrapping offset or receipt time is substituted.
 Further blind repeated polling does not resolve this compatibility boundary.
-The next useful vehicle check is after a normal fresh GPS acquisition, or after
-Tesla provides an authoritative explanation/correction for the returned field.
+An owner-authorized retry after driving still returned a negative source time.
+The firmware now retains bounded request ID and timestamp metadata for a support
+case; AUTO remains blocked pending valid GPS or an authoritative Tesla correction.
 
 Keep DISABLED, uncommissioned and dry-run until the corresponding physical and
 live checks actually pass. See [verification](verification.md) for measured facts

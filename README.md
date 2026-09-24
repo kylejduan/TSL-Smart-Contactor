@@ -267,8 +267,12 @@ paid requests. Hardware/vehicle/electrical validation remains separate.
 
 The 2026-09-23 physical integration check reached the location endpoint with HTTP
 200, but its numeric `gps_as_of` was negative. AUTO correctly remained unauthorized.
-If this persists after the vehicle obtains a new GPS fix during normal use, retain
-the redacted endpoint/status/detail and `gps_source_value` for Tesla Fleet API
-support. Do not infer an offset, wrap a negative number, or replace source time
+The owner repeated the check after driving; the timestamp remained invalid.
+Retain the redacted endpoint/status/detail, `gps_source_text`, `fleet_txid`,
+`fleet_date`, `fleet_received_utc_s`, `report_timestamp_text` and `api_version` for
+Tesla Fleet API support, along with the vehicle software version. These bounded
+diagnostics omit tokens, credentials and coordinates. The report timestamp is
+**not** a GPS freshness source. Missing optional metadata is left empty (API
+version is -1 when unavailable). Do not infer an offset, wrap a negative number, or replace source time
 with receipt time. Leave DISABLED/uncommissioned/dry-run until valid GPS evidence
 and the separate physical bench checks pass. See [verification](docs/verification.md).

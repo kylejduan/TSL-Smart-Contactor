@@ -77,6 +77,22 @@ TEST(gps_wire_diagnostic_preserves_only_bounded_numeric_text) {
     REQUIRE(!j.number_text(0,small,sizeof small));REQUIRE(small[0]==0);
     REQUIRE(!j.number_text(0,nullptr,0));
 }
+TEST(report_metadata_never_substitutes_for_gps_source_time) {
+    Observation o;VehicleMetadata m;
+    auto wire=body("\"latitude\":0,\"longitude\":0,\"gps_as_of\":-123456789,\"timestamp\":1800000000123");
+    auto at=wire.find("\"state\"");wire.insert(at,"\"api_version\":83,");
+    REQUIRE(parse_vehicle(wire,config().vin,true,o,nullptr,nullptr,nullptr,0,&m)==Error::Malformed);
+    REQUIRE(std::string(m.report_timestamp_text)=="1800000000123");REQUIRE(m.api_version==83);
+    REQUIRE(o.kind==Evidence::Unknown);
+    o.generation=1;o.request=1;Policy p;p.configure(config(),1,0);p.observe(o,30000,epoch,true);
+    REQUIRE(!p.tick(30000).commanded);REQUIRE(!p.tick(30000).auto_home);
+    for(const auto& value:{std::string("null"),std::string("\"private text\""),std::string(80,'9')}) {
+        wire=body("\"latitude\":0,\"longitude\":0,\"gps_as_of\":1800000000,\"timestamp\":"+value);
+        REQUIRE(parse_vehicle(wire,config().vin,true,o,nullptr,nullptr,nullptr,0,&m)==Error::None);
+        REQUIRE(m.report_timestamp_text[0]==0);REQUIRE(m.api_version==-1);
+        REQUIRE(o.source_s==epoch);
+    }
+}
 TEST(json_bounds_duplicates_and_hostile_input) {
     Json j;
     for(auto s:{"{\"vin\":1,\"vin\":2}","{\"v\\u0069n\":1}","[01]","[NaN]","{}garbage","{\"a\":}","[1,]","\"unterminated","[1e]"})REQUIRE(!j.parse(s));
@@ -118,6 +134,26 @@ TEST(configuration_validation) {
 }
 
 #include "http_decoder.hpp"
+TEST(http_support_metadata_is_bounded_unambiguous_and_json_safe) {
+    const std::string date="Wed, 23 Sep 2026 10:56:00 GMT";
+    auto decode=[&](const std::string& headers,const char* expected_id,const char* expected_date) {
+        BodyBuffer body;HttpDecoder d(body);
+        auto wire="HTTP/1.1 200 OK\r\nContent-Length: 2\r\n"+headers+"\r\n{}";
+        for(char c:wire)REQUIRE(d.feed(&c,1));
+        REQUIRE(d.done());REQUIRE(d.body()=="{}");
+        REQUIRE(std::string(d.transaction_id())==expected_id);
+        REQUIRE(std::string(d.response_date())==expected_date);
+    };
+    decode("X-TxId: synthetic-1234_ab.cd:01\r\nDate: "+date+"\r\n","synthetic-1234_ab.cd:01",date.c_str());
+    decode("X-TxId: first\r\nX-TxId: second\r\nDate: "+date+"\r\nDate: "+date+"\r\n","","");
+    for(const auto& bad:{std::string("private\"text"),std::string("private\\text"),std::string(129,'a')})
+        decode("X-TxId: "+bad+"\r\n","","");
+    decode("Date: private\"text\r\n","","");
+    BodyBuffer body;HttpDecoder d(body);
+    std::string wire="HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nX-TxId: original\r\n\r\n2\r\n{}\r\n0\r\nX-TxId: replacement\r\n\r\n";
+    REQUIRE(d.feed(wire.data(),wire.size()));REQUIRE(d.done());
+    REQUIRE(std::string(d.transaction_id())=="original");
+}
 TEST(http_chunked_arbitrary_fragments_and_retry_after) {
     std::string wire="HTTP/1.1 429 Too Many Requests\r\nTransfer-Encoding: chunked\r\nRetry-After: 120\r\n\r\n4\r\n{\"a\"\r\n3;ok=x\r\n:1}\r\n0\r\n\r\n";
     BodyBuffer d_body;HttpDecoder d(d_body);
