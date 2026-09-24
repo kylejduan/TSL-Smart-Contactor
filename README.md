@@ -13,9 +13,9 @@ negative and fails validation. Relay/contact measurements remain unverified. See
 [USB-only bench checklist](docs/bench_checklist.md). The [acceptance record](docs/acceptance.md)
 maps the original requirements to evidence and open checks. It ships **uncommissioned,
 DISABLED and dry-run**. The completed local dashboard revision has passed its
-[application checks](docs/app_verification.md); board installation is pending USB
-reconnection. Arming and physical-output enablement are separate USB
-operations; both leave DISABLED selected.
+[application checks](docs/app_verification.md), is installed on the board, and has
+passed trusted local HTTPS and USB verification. Arming and physical-output
+enablement are separate USB operations; both leave DISABLED selected.
 
 ## What it controls
 

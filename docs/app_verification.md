@@ -34,6 +34,7 @@ not physical commissioning or resolution of the Tesla GPS timestamp anomaly.
 | agent-browser 0.38.1 desktop interaction and screenshots | PASS: sign-in, page structure and controls inspected; no browser errors |
 | Desktop 1280 px / mobile 390 px | PASS: screenshots inspected, no horizontal document overflow |
 | ESP-IDF v5.5.2 `idf.py build` | PASS: 981,472-byte application, 69% app-partition space remaining |
+| GitHub Actions run `35966899232`, revision `f7a5113` | PASS: native, browser and esp32s3 jobs |
 | `git diff --check` | PASS |
 
 Application SHA-256:
@@ -48,15 +49,42 @@ See [local app guide](local_app.md#reproducible-browser-verification) for comman
 Node v24.18.0 and the Ubuntu 24.04 Chromium build were used on this Ubuntu 26.04
 host. Browser dependencies are test-only and pinned in the test lockfile.
 
-## Hardware boundary
+## Installed-board verification, 2026-09-24 UTC
 
 The controller was unavailable when the update was ready: Windows enumerated no
-serial ports, and the previously configured HTTPS address did not answer. This
-revision has **not yet been flashed or verified on the board**. Prior hardware
-results in [verification.md](verification.md) apply to their recorded older images.
-An application-only update and local HTTPS/USB verification are prepared; they
-preserve NVS and the device-owned refresh-token chain. No live Tesla request, relay
-ON command, arming or output enablement was performed for this dashboard work.
+serial ports, and the previously configured HTTPS address did not answer. The owner
+then reconnected USB and confirmed mains/contactor wiring remained disconnected.
+Pre-update USB checks confirmed DISABLED, uncommissioned, dry-run, OFF commanded,
+no fault, intact profile and a usable token journal.
+
+The image above was written to the application partition at `0x30000`, using
+esptool 4.12.0; flash hash verification passed. Bootloader, partition table and NVS
+were preserved. An initial HTTPS attempt before Wi-Fi was ready timed out. At
+45 seconds uptime USB confirmed Wi-Fi and UTC readiness, and the subsequent
+Windows-native Python check passed using normal certificate/hostname verification:
+
+- Served HTML, CSS and JavaScript matched the source files byte for byte.
+- CSP required same-origin scripts without `unsafe-inline`.
+- Unauthenticated status/event reads returned 401; authenticated login succeeded.
+- Session lifetime and bounded event history were present; both recorded events
+  showed OFF commanded.
+- Check-now and timed override returned 409 while DISABLED. Invalid coordinates
+  returned 400; attempting to disable dry-run through settings returned 409.
+- Authenticated OFF succeeded; logout invalidated the session.
+- Exact attempt counters remained `[0, 0, 0]`: no token, status or location calls.
+
+Final USB at 87 seconds uptime confirmed DISABLED, uncommissioned, dry-run,
+OFF commanded, intact profile, usable token journal, Wi-Fi/UTC ready and no fault
+or allocation failure. Maximum observed control gap was **57 ms**, free internal
+heap **79,060 bytes**, largest block **31,744 bytes**. This is an observed interval,
+not a worst-case timing guarantee. Local verification processes exited normally.
+
+Browser interaction/screenshots above used synthetic responses; installed-board
+verification used the actual HTTPS endpoints and exact embedded assets. No live
+Tesla request, relay ON command, arming or output enablement was performed for this
+dashboard work. Earlier image results remain in [verification.md](verification.md).
+
+## Remaining hardware and vehicle boundary
 
 The known negative GPS source-time issue still prevents valid live AUTO acceptance.
 Supervised polarity, continuity, boot-pulse, watchdog and brownout checks remain

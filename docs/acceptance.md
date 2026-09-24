@@ -1,6 +1,6 @@
 # Requirement acceptance record
 
-As of 2026-09-23. This is a software and integration audit, not electrical approval.
+As of 2026-09-24 UTC. This is a software and integration audit, not electrical approval.
 The original requirements remain the acceptance criteria. A native test or compiled
 image does not satisfy a physical measurement or prove live GPS compatibility.
 
@@ -28,8 +28,10 @@ An owner-authorized retry after driving still returned a negative source time.
 The firmware now retains bounded request ID and timestamp metadata for a support
 case; AUTO remains blocked pending valid GPS or an authoritative Tesla correction.
 
-The completed dashboard revision has native/browser/build verification; its
-installation awaits USB reconnection. See [application checks](app_verification.md).
+The completed dashboard revision has native/browser/build verification and is
+installed on the board. Trusted local HTTPS checks passed with zero Fleet attempts,
+and final USB diagnostics confirmed DISABLED, uncommissioned, dry-run and no fault.
+See [application checks](app_verification.md).
 
 Keep DISABLED, uncommissioned and dry-run until the corresponding physical and
 live checks actually pass. See [verification](verification.md) for measured facts
