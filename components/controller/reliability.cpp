@@ -60,10 +60,13 @@ Error Budget::take(Endpoint e,uint32_t day,uint32_t month,uint32_t dc,uint32_t m
     }
     uint64_t used_d=0,used_m=0;
     for(int i=0;i<3;++i) {used_d+=r.daily[i];used_m+=r.monthly[i];}
-    if(used_d>dc || used_m>mc)return Error::Budget;
+    if(used_d>dc || used_m>mc || r.monthly[static_cast<size_t>(Endpoint::Location)]>kMonthlyDataRequestCap)
+        return Error::Budget;
     if(credit_[k]) {--credit_[k];return Error::None;}
-    if(used_d==dc || used_m==mc)return Error::Budget;
-    uint32_t n=std::min<uint64_t>(4,std::min(dc-used_d,mc-used_m));
+    if(used_d==dc || used_m==mc ||
+       (e==Endpoint::Location && r.monthly[k]==kMonthlyDataRequestCap))return Error::Budget;
+    uint64_t room=e==Endpoint::Location ? kMonthlyDataRequestCap-r.monthly[k] : UINT32_MAX;
+    uint32_t n=std::min<uint64_t>(4,std::min({dc-used_d,mc-used_m,room}));
     r.daily[k]+=n;r.monthly[k]+=n;seal(r);
     if(!store_.write("budget",&r,sizeof r))return Error::Storage;
     record_=r;credit_[k]=n-1;return Error::None;
@@ -86,7 +89,7 @@ void Scheduler::finish(Ms now,Error e,uint32_t poll,uint32_t retry,uint32_t rand
 }
 bool Scheduler::check_now(Ms now) {
     if(busy_ || now<manual_after_ || now<embargo_)return false;
-    manual_after_=now+60000;paused_=false;next_=now;return true;
+    manual_after_=now+600000;paused_=false;next_=now;return true;
 }
 void Session::failed_login(Ms now) {
     failures_=std::min(failures_+1,8u);retry_=now+Ms(std::min(300u,1u<<failures_))*1000;

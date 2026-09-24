@@ -118,3 +118,26 @@ and its immediate retry returned 429. Final authenticated state remained DISABLE
 uncommissioned, dry-run, OFF commanded, with no fault, maximum observed control
 gap **51 ms**, and Fleet attempt counters `[0, 0, 0]`. These are measurements on
 this PC and LAN, not a guaranteed maximum on every browser or network.
+
+## Monthly Fleet data budget, 2026-09-24 UTC
+
+Tesla published 500 Data requests/$1 and a $10 monthly account discount at review.
+This revision limits the controller to 5,000 reserved live-data attempts per UTC
+month and delays repeated check-now requests by 10 minutes. Automatic polling stays
+at 600 seconds to permit renewal of the 900-second authorization lease. The budget
+test covers month rollover, reboot, cap exhaustion before status or refresh, and
+lease expiry without renewal.
+
+`cmake --build build-host && ctest --test-dir build-host --output-on-failure`
+passed 61 native tests; 12 Python tests, `node --check main/app.js`, and nine
+synthetic browser scenarios passed. ESP-IDF v5.5.2 built a 991,264-byte image,
+SHA-256 `dd51890e3b8acc4883da543c4b814eb4e4933a7aa7974eee053ef24002ab6b20`.
+Esptool 4.12.0 verified an application-only flash at `0x30000`, leaving NVS intact.
+
+USB confirmed the board booted DISABLED, uncommissioned, dry-run, OFF commanded,
+without a fault; the profile and token journal remained intact. Once Wi-Fi and UTC
+were ready, trusted local HTTPS login completed in 0.661 seconds and reported
+`location_monthly_cap=5000`, `poll_s=600`, and Fleet attempt counters `[0, 0, 0]`.
+No live Tesla request or relay energization was used for this budget check. Tesla's
+account-level spending limit and other applications' usage were not changed or
+verified here; the controller's local estimate remains pre-discount.

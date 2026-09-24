@@ -249,17 +249,22 @@ location-sharing indicator. No guarantee is made that querying an online vehicle
 has zero effect on sleep behavior.
 
 Published pricing at review was $0.002 per live data request, with status/list and
-auth uncharged and a $10/month developer discount. An always-online vehicle polled
-every 10 minutes yields about **$8.64 per 30 days before discounts**; manual checks,
-retries and account-specific conditions change this. See the cited
-[pricing findings](docs/verified_interfaces.md#pricing-and-limits). Do not assume
-free/unlimited access. Tesla's portal spending limit remains authoritative.
+auth uncharged and a **$10 monthly account discount** for individual developers/small
+applications. An always-online vehicle polled every 10 minutes yields about **$8.64
+per 30 days** or **$8.93 per 31 days** before discounts. See the cited
+[pricing findings](docs/verified_interfaces.md#pricing-and-limits). The discount
+can be consumed by other applications on the account; Tesla's portal billing
+limit and usage remain authoritative.
 
-Local caps default to 400 total attempts/day and 12,000/month and include status,
-location and refresh attempts. Counts reserve small blocks before use and may
-overestimate after reboot. Reaching a cap pauses polling and renewal; it cannot
-hold the outlet ON indefinitely. The UI reports location-call cost estimates
-before discounts and reservation counts by endpoint in status/location/refresh order.
+The controller reserves at most **5,000 live-data attempts per UTC month**
+(5,000 × $0.002 = $10 at the published rate). This fixed ceiling includes failed
+attempts and unused reservations after reboot. Configurable caps still default to
+400 total attempts/day and 12,000/month across status, location and refresh.
+Check-now has a 10-minute cooldown; automatic polling stays at 10 minutes so a
+successful HOME fix can renew its 15-minute lease. Reaching any cap stops renewal
+and cannot hold the outlet ON indefinitely. The UI shows conservative reservations
+and cost before discounts; other account usage and pricing changes can still lead
+to charges.
 
 ## Recovery and troubleshooting
 

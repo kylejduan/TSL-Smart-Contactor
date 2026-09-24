@@ -92,6 +92,14 @@ Error FleetClient::poll(const Config& cfg,uint32_t generation,Observation& o) {
     if(journal_.needs_reauth())return Error::Reauthorize;
     if(!io_.ready())return Error::Clock;
     if(!io_.current(generation))return Error::Unavailable;
+    // Once the live-data allowance is reserved, skip even the otherwise free
+    // status call. This also prevents sleep replies from renewing a lease at cap.
+    time_t utc=io_.utc();tm month{};
+    if(!gmtime_r(&utc,&month))return Error::Clock;
+    const auto period=static_cast<uint32_t>((month.tm_year+1900)*12+month.tm_mon+1);
+    const auto& counts=budget_.counts();
+    if(counts.month==period && counts.monthly[static_cast<size_t>(Endpoint::Location)]>=kMonthlyDataRequestCap)
+        return Error::Budget;
     if(access_until_<=io_.now()) {auto e=refresh(cfg);if(e!=Error::None)return e;}
     auto e=get(Endpoint::Status,cfg,o);
     if(e!=Error::None || o.vehicle!=Vehicle::Online)return e;

@@ -120,8 +120,9 @@ are not added to status or logs. No arbitrary headers or response bodies are log
 
 One coordinated refresh and one retry are allowed per 401 request. Billing,
 permission, repeated 401, redirect and local-storage errors pause automatic polling.
-Authenticated check-now may deliberately retry after backoff; revoked token journals
-still require USB reauthorization. Backoff starts around 60 seconds, grows to an
+Authenticated check-now may deliberately retry after backoff and has a 10-minute
+cooldown. Revoked token journals still require USB reauthorization. Backoff starts
+around 60 seconds, grows to an
 hour, adds jitter, and honors bounded Retry-After seconds/HTTP dates. Check-now
 cannot bypass backoff, a request in progress or budgets. Active credentials also
 refresh before their `expires_in` deadline without moving the presence poll deadline.
@@ -141,7 +142,13 @@ Separate saturating RAM counters report actual transport attempts per endpoint i
 the current boot, including 401 retries and failures but excluding requests refused
 by the budget or storage checks. They do not replace durable budget reservations.
 VIN/home and policy changes do not reset accounting. The request caps are additional
-local limits; Tesla billing remains authoritative.
+local limits; Tesla billing remains authoritative. A fixed 5,000-reservation cap
+on monthly live-data requests matches $10 at the published $0.002 Data price.
+Before each poll, the client checks this cap so it sends no status, live-data or
+poll-time refresh request once the monthly live-data allowance is spent. A separate
+unbilled token refresh may still maintain the device-owned token chain. Budget failures
+cannot renew a sleeping-home lease, and normal policy expiry commands OFF. On the
+next UTC month, the budget can resume without clearing stored account records.
 
 ## Local management boundary
 

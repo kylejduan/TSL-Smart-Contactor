@@ -118,12 +118,18 @@ are documented as unbilled. Do not assume these facts are permanent or that a
 particular account/vehicle discount applies.
 
 **Local estimate:** 144 location attempts/day × 30 × $0.002 = **$8.64/month** if
-always online at 600-second polling, excluding check-now/retries. Never subtract
-the developer discount in the device's estimate; the portal is authoritative.
-Locally count status/location/refresh attempts, including failures, against
-400/day and 12,000/month defaults. Reserve four attempts per endpoint in flash
-before use; unused reservations are lost on reset. Thus displayed upper-bound
-counts may exceed actual requests by a small amount. Caps stop polling/renewal.
+always online at 600-second polling, or **$8.93 for 31 days**, excluding check-now
+and retries. The $10 discount is stated for individual developers/small apps; it
+is not a guaranteed $10 allowance dedicated to this controller. Never subtract
+the discount in the device's estimate; the account portal is authoritative.
+As of 2026-09-24, the controller caps `vehicle_data?endpoints=location_data` at
+5,000 reserved attempts per UTC month, a $10 local pre-discount ceiling at the
+published Data price. All status/location/refresh attempts also count against
+configurable 400/day and 12,000/month defaults. Reserve four attempts per endpoint
+in flash before use; unused reservations are lost on reset. Thus upper-bound
+counts may exceed actual requests. Caps stop Tesla polling/lease renewal. An
+authenticated check-now has a separate 10-minute cooldown. Other apps and price
+changes can still consume or exceed the account discount.
 
 ## SDK and network contracts
 
