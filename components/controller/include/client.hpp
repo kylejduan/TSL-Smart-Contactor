@@ -11,6 +11,7 @@ struct FleetDiagnostics {
     char transaction_id[129]={},response_date[30]={};
     int64_t received_utc_s=0;
     VehicleMetadata vehicle_metadata{};
+    double reported_distance_m=-1; // Diagnostic position, even if GPS time is invalid.
 };
 struct HttpResult {
     Error error=Error::None;

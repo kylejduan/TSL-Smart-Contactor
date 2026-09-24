@@ -189,7 +189,7 @@ size_t status_json(char* out,size_t capacity) {
         "\"distance_m\":%.1f,\"last_success_uptime_s\":%lld,\"next_poll_s\":%lld,"
         "\"wifi_connected\":%s,\"rssi_dbm\":%d,\"uptime_s\":%lld,\"utc_ready\":%s,"
         "\"error\":\"%s\",\"reauthorization_needed\":%s,\"poll_busy\":%s,"
-        "\"fleet_endpoint\":\"%s\",\"fleet_http_status\":%d,\"fleet_detail\":\"%s\",\"gps_source_value\":%.17g,\"gps_source_text\":\"%s\",\"fleet_txid\":\"%s\",\"fleet_date\":\"%s\",\"fleet_received_utc_s\":%lld,\"report_timestamp_text\":\"%s\",\"api_version\":%lld,"
+        "\"fleet_endpoint\":\"%s\",\"fleet_http_status\":%d,\"fleet_detail\":\"%s\",\"gps_source_value\":%.17g,\"gps_source_text\":\"%s\",\"fleet_txid\":\"%s\",\"fleet_date\":\"%s\",\"fleet_received_utc_s\":%lld,\"report_timestamp_text\":\"%s\",\"api_version\":%lld,\"reported_distance_m\":%.1f,"
         "\"attempts_this_boot\":[%lu,%lu,%lu],\"reserved_today\":[%lu,%lu,%lu],\"reserved_month\":[%lu,%lu,%lu],\"estimated_location_usd\":%.3f,"
         "\"settings\":{\"vin\":\"%s\",\"home_lat\":%.7f,\"home_lon\":%.7f,\"enable_m\":%lu,\"disable_m\":%lu,"
         "\"max_age_s\":%lu,\"future_s\":%lu,\"lease_s\":%lu,\"sleep_s\":%lu,\"poll_s\":%lu,\"dwell_s\":%lu,"
@@ -201,7 +201,7 @@ size_t status_json(char* out,size_t capacity) {
         s.error==Error::Reauthorize || s.error==Error::Authentication || s.error==Error::Permission ?"true":"false",network_busy?"true":"false",
         s.fleet.endpoint,s.fleet.http_status,s.fleet.detail,s.fleet.gps_source_value,s.fleet.gps_source_text,
         s.fleet.transaction_id,s.fleet.response_date,static_cast<long long>(s.fleet.received_utc_s),
-        s.fleet.vehicle_metadata.report_timestamp_text,static_cast<long long>(s.fleet.vehicle_metadata.api_version),
+        s.fleet.vehicle_metadata.report_timestamp_text,static_cast<long long>(s.fleet.vehicle_metadata.api_version),s.fleet.reported_distance_m,
         (unsigned long)s.fleet.attempts_this_boot[0],(unsigned long)s.fleet.attempts_this_boot[1],(unsigned long)s.fleet.attempts_this_boot[2],
         (unsigned long)s.budget.daily[0],(unsigned long)s.budget.daily[1],(unsigned long)s.budget.daily[2],
         (unsigned long)s.budget.monthly[0],(unsigned long)s.budget.monthly[1],(unsigned long)s.budget.monthly[2],s.budget.monthly[1]*0.002,

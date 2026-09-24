@@ -112,7 +112,11 @@ local response-completion UTC, optional numeric `response.api_version` and origi
 `drive_state.timestamp` numeric text. Duplicate or unsafe diagnostic headers are
 omitted; they never change response acceptance. These fields reset per response,
 are exposed through authenticated status/physical USB, and cannot authorize HOME
-or replace `gps_as_of`. No arbitrary headers or response bodies are logged.
+or replace `gps_as_of`. Authenticated status separately reports the distance from
+the numeric/range-valid returned coordinates to configured home, even when the
+source timestamp is invalid. This diagnostic distance is explicitly freshness
+unverified; it never changes the AUTO latch or policy distance. Raw coordinates
+are not added to status or logs. No arbitrary headers or response bodies are logged.
 
 One coordinated refresh and one retry are allowed per 401 request. Billing,
 permission, repeated 401, redirect and local-storage errors pause automatic polling.

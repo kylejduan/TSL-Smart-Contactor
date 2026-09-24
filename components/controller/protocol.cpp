@@ -62,6 +62,7 @@ Error parse_vehicle(std::string_view body, const char* vin, bool location, Obser
     if(metadata)j.number_text(j.get(d,"timestamp"),metadata->report_timestamp_text,sizeof metadata->report_timestamp_text);
     if(!j.number(j.get(d,"latitude"),o.lat) || !j.number(j.get(d,"longitude"),o.lon) ||
        std::abs(o.lat)>90 || std::abs(o.lon)>180)return reject("coordinates_missing_or_invalid");
+    if(metadata)metadata->coordinates_valid=true;
     int source=j.get(d,"gps_as_of");
     if(source<0)return reject("gps_as_of_missing");
     if(j.is(source,Json::Type::Null))return reject("gps_as_of_null");

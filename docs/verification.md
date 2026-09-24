@@ -465,3 +465,30 @@ Wi-Fi/UTC ready; maximum control gap **51 ms**, free internal heap **79,252 byte
 largest block **31,744 bytes**. No HOME lease was established. All validation
 processes completed, with no laptop polling process left running. Live GPS
 acceptance and supervised physical commissioning remain unresolved.
+
+
+## Reported-coordinate comparison 2026-09-23
+
+At the owner's request, authenticated status now separately reports distance from
+numeric/range-valid returned coordinates to the configured home point, including
+when GPS source time fails validation. It is labeled freshness unverified, clears
+on a later response without valid coordinates, and never changes AUTO permission.
+No raw GPS coordinates are added to status, USB diagnostics, logs or this record.
+
+All **57 native tests**, **12 Python tests**, JavaScript syntax and ESP-IDF v5.5.2
+build passed. The application is **947,760 bytes**, SHA-256
+`b835b81df897318d872090956c4fe87792c3129edbea968664b31859fc2990bf`.
+Application-only flash hash verification passed, preserving configuration/tokens.
+An HTTPS check begun before Wi-Fi readiness timed out; USB at uptime 36 seconds
+confirmed connected Wi-Fi, synchronized UTC and no local fault. No Fleet request
+had occurred in this boot at that point.
+
+The subsequent trusted-HTTPS check passed and served the updated embedded HTML.
+One bounded live check returned ONLINE / HTTP 200. The returned coordinates were
+**2.3 m from configured home**. This establishes agreement with the configured
+home point, not independent ground truth about the vehicle's current position.
+GPS text remained invalid (`-823232341`); no AUTO lease was granted. One refresh,
+one status and one location request occurred; no vehicle/wake commands. Final
+USB confirmed DISABLED, uncommissioned, dry-run, OFF commanded, intact profile,
+usable token journal, no fault/allocation failure, and **55 ms** maximum control
+loop gap. Raw coordinates were neither exported nor placed in this record.

@@ -272,7 +272,10 @@ Retain the redacted endpoint/status/detail, `gps_source_text`, `fleet_txid`,
 `fleet_date`, `fleet_received_utc_s`, `report_timestamp_text` and `api_version` for
 Tesla Fleet API support, along with the vehicle software version. These bounded
 diagnostics omit tokens, credentials and coordinates. The report timestamp is
-**not** a GPS freshness source. Missing optional metadata is left empty (API
+**not** a GPS freshness source. The dashboard also shows reported position distance
+from configured home, labeled freshness unverified; this can help compare the
+returned position with where the owner knows the vehicle is parked, but cannot
+authorize power. Missing optional metadata is left empty (API
 version is -1 when unavailable). Do not infer an offset, wrap a negative number, or replace source time
 with receipt time. Leave DISABLED/uncommissioned/dry-run until valid GPS evidence
 and the separate physical bench checks pass. See [verification](docs/verification.md).
