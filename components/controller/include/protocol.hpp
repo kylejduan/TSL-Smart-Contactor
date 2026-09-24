@@ -13,6 +13,7 @@ Error http_error(int status);
 struct VehicleMetadata {
     char report_timestamp_text[64]={}; // Diagnostic only, never a GPS freshness source.
     int64_t api_version=-1;
+    bool coordinates_valid=false; // Numeric/range validity only, not freshness.
 };
 // Optional detail is always a fixed literal, never upstream text or field values.
 Error parse_vehicle(std::string_view body, const char* vin, bool location, Observation& o,

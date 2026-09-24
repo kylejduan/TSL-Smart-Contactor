@@ -94,12 +94,28 @@ TEST(support_metadata_survives_invalid_gps_and_resets_for_next_response) {
     auto d=f.client.diagnostics();REQUIRE(std::string(d.transaction_id)=="synthetic-id");
     REQUIRE(std::string(d.response_date)=="Wed, 23 Sep 2026 12:00:00 GMT");
     REQUIRE(d.received_utc_s==epoch);REQUIRE(d.vehicle_metadata.api_version==83);
+    REQUIRE(d.vehicle_metadata.coordinates_valid);REQUIRE(d.reported_distance_m==0);
     REQUIRE(std::string(d.vehicle_metadata.report_timestamp_text)=="1800000000000");
     REQUIRE(o.kind==Evidence::Unknown);
     f.io.replies={{Endpoint::Status,200,asleep}};
     REQUIRE(f.client.poll(config(),1,o)==Error::None);d=f.client.diagnostics();
     REQUIRE(!d.transaction_id[0]);REQUIRE(!d.response_date[0]);REQUIRE(d.received_utc_s==0);
     REQUIRE(d.vehicle_metadata.api_version==-1);REQUIRE(!d.vehicle_metadata.report_timestamp_text[0]);
+    REQUIRE(!d.vehicle_metadata.coordinates_valid);REQUIRE(d.reported_distance_m==-1);
+}
+TEST(reported_position_distance_is_independent_of_invalid_source_time) {
+    Fixture f;
+    const std::string invalid=R"({"response":{"vin":"5YJ3E1EA7KF000001","drive_state":{"latitude":0.001,"longitude":0,"gps_as_of":-123456789}}})";
+    f.io.replies={{Endpoint::Refresh,200,token},{Endpoint::Status,200,online},{Endpoint::Location,200,invalid}};
+    auto o=fix(epoch);REQUIRE(f.client.poll(config(),1,o)==Error::Malformed);
+    auto d=f.client.diagnostics();REQUIRE(d.reported_distance_m>111);REQUIRE(d.reported_distance_m<112);
+    REQUIRE(o.kind==Evidence::Unknown);
+    Policy p;p.configure(config(),1,0);p.observe(o,30000,epoch,true);
+    REQUIRE(!p.tick(30000).auto_home);REQUIRE(!p.tick(30000).commanded);
+    const std::string bad=R"({"response":{"vin":"5YJ3E1EA7KF000001","drive_state":{"latitude":null,"longitude":0,"gps_as_of":1800000000}}})";
+    f.io.replies={{Endpoint::Status,200,online},{Endpoint::Location,200,bad}};
+    REQUIRE(f.client.poll(config(),1,o)==Error::Malformed);
+    REQUIRE(f.client.diagnostics().reported_distance_m==-1);
 }
 TEST(disabled_during_blocked_io_does_not_restore_or_issue_location) {
     Fixture f;Policy policy;policy.configure(config(),1,0);policy.observe(fix(epoch),0,epoch,true);
