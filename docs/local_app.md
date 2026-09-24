@@ -36,6 +36,9 @@ and, after commissioning, authorization. TIMED_ON also requires confirmation, us
 a one-hour default and an eight-hour maximum, and cannot start while DISABLED or
 uncommissioned. It bypasses Tesla presence/connectivity but not local faults or
 minimum OFF dwell. These gates are enforced by firmware, not just disabled buttons.
+Check-now uses the same scheduler and has a 10-minute cooldown. The Diagnostics
+panel shows reserved live-data attempts against the fixed 5,000/month limit and
+their cost at Tesla's published rate, before the account discount.
 
 Check now uses the same scheduler as automatic polling. It rejects DISABLED,
 missing Wi-Fi/UTC, active requests, and current backoff/rate limits. An accepted

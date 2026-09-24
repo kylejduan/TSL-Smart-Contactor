@@ -228,7 +228,7 @@ esp_err_t action(httpd_req_t* r) {
         if(s.config.disabled)return reply(r,"{\"error\":\"check_requires_auto\"}","409 Conflict");
         if(!wifi_connected || !s.utc_ok)return reply(r,"{\"error\":\"connection_not_ready\"}","409 Conflict");
         if(now_ms()<next_manual || network_busy || (s.error!=Error::None && now_ms()<s.next_poll))return reply(r,"{\"error\":\"check_throttled\"}","429 Too Many Requests");
-        next_manual=now_ms()+60000;check_requested=true;
+        next_manual=now_ms()+600000;check_requested=true;
     } else if(j.equal(op,"settings")) {
         Config c=s.config;
         if(!parse_config(j,j.get(0,"settings"),c))return reply(r,"{\"error\":\"invalid_settings\"}","400 Bad Request");
@@ -253,7 +253,7 @@ size_t status_json(char* out,size_t capacity) {
         "\"wifi_connected\":%s,\"rssi_dbm\":%d,\"uptime_s\":%lld,\"utc_ready\":%s,"
         "\"error\":\"%s\",\"reauthorization_needed\":%s,\"poll_busy\":%s,"
         "\"fleet_endpoint\":\"%s\",\"fleet_http_status\":%d,\"fleet_detail\":\"%s\",\"gps_source_value\":%.17g,\"gps_source_text\":\"%s\",\"fleet_txid\":\"%s\",\"fleet_date\":\"%s\",\"fleet_received_utc_s\":%lld,\"report_timestamp_text\":\"%s\",\"api_version\":%lld,\"reported_distance_m\":%.1f,"
-        "\"attempts_this_boot\":[%lu,%lu,%lu],\"reserved_today\":[%lu,%lu,%lu],\"reserved_month\":[%lu,%lu,%lu],\"estimated_location_usd\":%.3f,"
+        "\"attempts_this_boot\":[%lu,%lu,%lu],\"reserved_today\":[%lu,%lu,%lu],\"reserved_month\":[%lu,%lu,%lu],\"location_monthly_cap\":%lu,\"estimated_location_usd\":%.3f,"
         "\"ready\":%s,\"fault\":%s,\"fault_source\":\"%s\",\"control_max_gap_ms\":%u,\"internal_heap_free\":%u,"
         "\"firmware_version\":\"%s\",\"sdk_version\":\"%s\",\"session_left_s\":%lld,"
         "\"settings\":{\"vin\":\"%s\",\"home_lat\":%.7f,\"home_lon\":%.7f,\"enable_m\":%lu,\"disable_m\":%lu,"
@@ -269,7 +269,8 @@ size_t status_json(char* out,size_t capacity) {
         s.fleet.vehicle_metadata.report_timestamp_text,static_cast<long long>(s.fleet.vehicle_metadata.api_version),s.fleet.reported_distance_m,
         (unsigned long)s.fleet.attempts_this_boot[0],(unsigned long)s.fleet.attempts_this_boot[1],(unsigned long)s.fleet.attempts_this_boot[2],
         (unsigned long)s.budget.daily[0],(unsigned long)s.budget.daily[1],(unsigned long)s.budget.daily[2],
-        (unsigned long)s.budget.monthly[0],(unsigned long)s.budget.monthly[1],(unsigned long)s.budget.monthly[2],s.budget.monthly[1]*0.002,
+        (unsigned long)s.budget.monthly[0],(unsigned long)s.budget.monthly[1],(unsigned long)s.budget.monthly[2],
+        (unsigned long)kMonthlyDataRequestCap,s.budget.monthly[1]*kDataRequestUsd,
         s.ready?"true":"false",critical_fault?"true":"false",fault_source.load()?fault_source.load():"none",
         unsigned(control_max_gap_ms.load()),unsigned(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
         esp_app_get_description()->version,esp_app_get_description()->idf_ver,static_cast<long long>(session.remaining(now_ms())/1000),

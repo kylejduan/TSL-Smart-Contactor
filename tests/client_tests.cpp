@@ -2,6 +2,7 @@
 #include "client.hpp"
 #include <map>
 #include <deque>
+#include <ctime>
 using namespace tsl;
 namespace {
 struct StoreFake : Store {
@@ -170,6 +171,23 @@ TEST(client_caps_prevent_transmission_and_uninitialized_clock_blocks_tls) {
     auto d=f.client.diagnostics();REQUIRE(d.attempts_this_boot[0]==0);
     REQUIRE(d.attempts_this_boot[1]==0);REQUIRE(d.attempts_this_boot[2]==1);
     REQUIRE(g.client.diagnostics().attempts_this_boot[2]==0);
+}
+TEST(monthly_data_cap_skips_status_refresh_and_sleep_renewal) {
+    Fixture f;
+    Policy policy;policy.configure(config(),1,0);
+    policy.observe(fix(epoch),0,epoch,true);
+    REQUIRE(policy.tick(30000).commanded);
+    time_t utc=f.io.utc();tm t{};REQUIRE(gmtime_r(&utc,&t));
+    BudgetRecord record;record.day=utc/86400;
+    record.month=static_cast<uint32_t>((t.tm_year+1900)*12+t.tm_mon+1);
+    record.monthly[static_cast<size_t>(Endpoint::Location)]=kMonthlyDataRequestCap;
+    seal(record);REQUIRE(f.store.write("budget",&record,sizeof record));
+    REQUIRE(f.client.initialize()==Error::None);
+    f.io.elapsed=600000;auto o=fix(epoch+600,2);
+    REQUIRE(f.client.poll(config(),1,o)==Error::Budget);
+    REQUIRE(f.io.requests.empty());
+    REQUIRE(policy.tick(899999).commanded);
+    REQUIRE(!policy.tick(900000).commanded);
 }
 TEST(request_attempts_count_failures_but_not_refused_storage_or_reboot_credit) {
     Fixture f;f.io.replies={{Endpoint::Refresh,200,token},{Endpoint::Status,503,"{}"}};

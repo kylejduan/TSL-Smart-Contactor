@@ -195,7 +195,8 @@
       $('usage').append(row);
     });
     $('budget').textContent = s.reserved_today.reduce((a, b) => a + b, 0) + ' / ' + s.settings.daily_cap + ' reserved today · ' + s.reserved_month.reduce((a, b) => a + b, 0) + ' / ' + s.settings.monthly_cap + ' this month. Reservations are conservative upper bounds.';
-    $('cost').textContent = 'Estimated location cost: $' + s.estimated_location_usd.toFixed(3) + ' this month before discounts. Tesla billing remains authoritative.';
+    $('cost').textContent = 'Live data: ' + s.reserved_month[1] + ' / ' + s.location_monthly_cap +
+      ' reserved this month · $' + s.estimated_location_usd.toFixed(3) + ' / $10.000 at Tesla’s published data rate, before its discount. Tesla billing remains authoritative.';
     $('readiness').replaceChildren();
     for (const [ok, title, note] of [
       [s.ready && !s.fault, 'Configuration', s.fault ? 'USB recovery required' : 'Profile loaded'],
@@ -228,7 +229,10 @@
     $('updated').textContent = 'Snapshot ' + duration(age) + ' ago. Refresh to verify subsequent changes.';
     $('lease').textContent = s.lease_s > age ? duration(s.lease_s - age) + ' until recorded lease expires' : 'No remaining lease in this snapshot';
     $('override').textContent = s.override_s > age ? duration(s.override_s - age) + ' until recorded override expires' : '';
-    $('check-help').textContent = s.mode === 'DISABLED' ? 'Polling paused while DISABLED.' : s.poll_busy ? 'A Tesla request is in progress.' : s.next_poll_s < 0 ? 'Automatic polling is paused. Resolve the error before checking again.' : 'Next scheduled poll in ' + duration(s.next_poll_s - age) + ' (as of this snapshot).';
+    $('check-help').textContent = s.mode === 'DISABLED' ? 'Polling paused while DISABLED.' :
+      s.error === 'local_request_cap' ? 'A local cap is exhausted. Tesla requests cannot renew AUTO until the applicable UTC period resets.' :
+      s.poll_busy ? 'A Tesla request is in progress.' : s.next_poll_s < 0 ? 'Automatic polling is paused. Resolve the error before checking again.' :
+      'Next scheduled poll in ' + duration(s.next_poll_s - age) + ' (as of this snapshot).';
     $('session').textContent = 'Session: ' + duration(s.session_left_s - age) + ' remaining';
     if (age >= s.session_left_s) { clearSession(); message('Your session expired. Sign in again.'); }
   }
@@ -323,7 +327,7 @@
     const keys = ['mode', 'commissioned', 'dry_run', 'gpio_command', 'reason', 'auto_home', 'lease_s', 'override_s', 'vehicle',
       'wifi_connected', 'utc_ready', 'uptime_s', 'error', 'reauthorization_needed', 'poll_busy', 'fleet_endpoint', 'fleet_http_status',
       'fleet_detail', 'gps_source_text', 'fleet_txid', 'fleet_date', 'fleet_received_utc_s', 'report_timestamp_text', 'api_version',
-      'attempts_this_boot', 'reserved_today', 'reserved_month', 'ready', 'fault', 'fault_source', 'control_max_gap_ms', 'internal_heap_free', 'firmware_version', 'sdk_version'];
+      'attempts_this_boot', 'reserved_today', 'reserved_month', 'location_monthly_cap', 'ready', 'fault', 'fault_source', 'control_max_gap_ms', 'internal_heap_free', 'firmware_version', 'sdk_version'];
     const report = { note: 'Redacted controller snapshot; no VIN, coordinates, passwords, tokens, cookies or client ID.', snapshot_age_s: Math.floor(elapsed()), status: {} };
     for (const key of keys) report.status[key] = state[key];
     report.events = events.map(e => ({ uptime_s: e.uptime_s, reason: e.reason, commanded_on: e.commanded_on }));

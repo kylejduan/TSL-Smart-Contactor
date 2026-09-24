@@ -25,7 +25,8 @@ BASE = dict(mode='DISABLED', commissioned=False, dry_run=True, auto_home=False, 
     fleet_detail='gps_as_of_out_of_range', gps_source_value=-123456789, gps_source_text='-123456789',
     fleet_txid='synthetic-request-id', fleet_date='Wed, 23 Sep 2026 12:00:00 GMT', fleet_received_utc_s=1790164800,
     report_timestamp_text='1790164800000', api_version=95, attempts_this_boot=[1,1,1],
-    reserved_today=[4,4,4], reserved_month=[8,8,8], estimated_location_usd=.016, ready=True,
+    reserved_today=[4,4,4], reserved_month=[8,8,8], location_monthly_cap=5000,
+    estimated_location_usd=.016, ready=True,
     fault=False, fault_source='none', control_max_gap_ms=53, internal_heap_free=79000,
     firmware_version='synthetic-test', sdk_version='v5.5.2', session_left_s=900, settings=SETTINGS)
 HISTORY = [dict(uptime_s=500, reason='uncommissioned', commanded_on=False)]

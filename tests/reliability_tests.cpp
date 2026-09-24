@@ -53,12 +53,27 @@ TEST(budget_is_conservative_across_reboot_and_commit_failures) {
     REQUIRE(reboot.take(Endpoint::Location,99,20,5,10)==Error::Clock);
     store.fail=true;REQUIRE(reboot.take(Endpoint::Refresh,101,20,5,10)==Error::Storage);
 }
+TEST(monthly_data_allowance_limits_location_reservations_across_reboot) {
+    Memory store;Budget budget(store);REQUIRE(budget.load()==Error::None);
+    for(uint32_t i=0;i<kMonthlyDataRequestCap-3;++i)
+        REQUIRE(budget.take(Endpoint::Location,100,20,10000,12000)==Error::None);
+    REQUIRE(budget.counts().monthly[1]==kMonthlyDataRequestCap);
+    Budget reboot(store);REQUIRE(reboot.load()==Error::None);
+    REQUIRE(reboot.take(Endpoint::Location,100,20,10000,12000)==Error::Budget);
+    REQUIRE(reboot.take(Endpoint::Status,100,20,10000,12000)==Error::None);
+    REQUIRE(reboot.take(Endpoint::Location,101,21,10000,12000)==Error::None);
+}
 TEST(scheduler_single_flight_manual_backoff_retryafter_and_permanent_pause) {
     Scheduler s;REQUIRE(s.begin(0));REQUIRE(!s.begin(0));REQUIRE(!s.check_now(0));
     s.finish(10,Error::RateLimit,600,500,0);REQUIRE(!s.due(500009));REQUIRE(!s.check_now(60000));
     REQUIRE(s.begin(500010));s.finish(500020,Error::Permission,600,0,0);REQUIRE(s.paused());
     REQUIRE(!s.due(9000000));REQUIRE(s.check_now(9000000));REQUIRE(s.begin(9000000));
     s.finish(9000001,Error::None,600,0,0);REQUIRE(!s.due(9600000));REQUIRE(s.due(9600001));
+}
+TEST(manual_check_has_ten_minute_cooldown) {
+    Scheduler s;REQUIRE(s.check_now(0));REQUIRE(s.begin(0));
+    s.finish(1,Error::None,600,0,0);
+    REQUIRE(!s.check_now(599999));REQUIRE(s.check_now(600000));
 }
 TEST(session_requires_auth_csrf_expiry_and_login_throttle) {
     Session s;std::string id(64,'a'),csrf(64,'b');

@@ -38,6 +38,9 @@ private:
     bool busy_ = false, loaded_ = false;
 };
 enum class Endpoint : uint8_t { Status, Location, Refresh, Count };
+// Tesla published $0.002 per Data request on 2026-09-24. Reserve before use.
+constexpr uint32_t kMonthlyDataRequestCap = 5000;
+constexpr double kDataRequestUsd = 0.002;
 struct BudgetRecord {
     uint32_t version = 1, day = 0, month = 0;
     uint32_t daily[3] = {}, monthly[3] = {};
