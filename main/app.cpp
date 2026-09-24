@@ -122,7 +122,7 @@ extern "C" void app_main() {
         if(!board::command(d.commanded)) {fail("gpio_command");board::command(false);d.commanded=false;}
         state.decision=d;state.utc_ok=time_ok;
         if(d.reason!=last_reason || d.commanded!=last_command) {
-            state.events[state.event_count%16]={now,d.reason,d.commanded};++state.event_count;
+            state.events.record(now,d.reason,d.commanded);
             last_reason=d.reason;last_command=d.commanded;
         }
         portEXIT_CRITICAL(&lock);

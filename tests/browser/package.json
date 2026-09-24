@@ -1,0 +1,6 @@
+{
+  "name": "smart-contactor-browser-tests",
+  "private": true,
+  "scripts": {"test": "node check.cjs"},
+  "devDependencies": {"playwright": "1.58.2"}
+}

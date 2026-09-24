@@ -19,3 +19,5 @@ secrets*.json
 *.bin
 *.elf
 *.map
+
+/tests/browser/node_modules/

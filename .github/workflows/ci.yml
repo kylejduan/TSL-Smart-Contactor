@@ -25,3 +25,14 @@ jobs:
           idf.py set-target esp32s3
           idf.py build
           idf.py size
+
+  browser:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: tests/browser
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm test

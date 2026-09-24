@@ -75,6 +75,7 @@ public:
     bool authorized(std::string_view cookie, Ms now) const;
     bool change_allowed(std::string_view cookie, std::string_view csrf, Ms now) const;
     void clear();
+    Ms remaining(Ms now) const {return expiry_>now ? expiry_-now : 0;}
 private:
     char cookie_[65]={}, csrf_[65]={};
     Ms expiry_=0,retry_=0;
