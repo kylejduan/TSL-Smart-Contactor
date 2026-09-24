@@ -13,7 +13,7 @@ image does not satisfy a physical measurement or prove live GPS compatibility.
 | 5. OAuth/provisioning | Local Python registration/consent/selection/handoff; device-only runtime rotation, journal, bounded recovery; actual consent/rotation/reboot passed | Actual power-loss testing across NVS rotation; reauthorization recovery remains owner-operated |
 | 6. API/scheduling/costs | Exact VIN, official TLS hosts, status before location, no wake/commands, single worker, backoff/caps/reservations; exact boot attempt counters | Negative outbound TLS certificate/name/time tests on hardware; account charges/discounts remain Tesla-authoritative |
 | 7. Presence policy | Native production policy/parser tests cover leases, source age, boundaries, duplicate/order/generation, sleep ceiling, clock jumps, override separation | Live fresh HOME/AWAY/sleep acceptance blocked by invalid GPS source time; historical GPS does not prove physical presence |
-| 8. Local management/persistence | USB-first setup, per-device HTTPS, password/session/Origin/CSRF, bounded input/log, versioned NVS, no AP/OTA/unused services | No NVS encryption or physical-extraction protection claimed; no autonomous arming |
+| 8. Local management/persistence | USB-first setup, per-device HTTPS, password/session/Origin/CSRF, responsive local dashboard, redacted export, visible 16-event RAM log, validated settings, versioned NVS, no AP/OTA/unused services | No NVS encryption or physical-extraction protection claimed; no autonomous arming |
 | 9. Reliability/tests | Native ASan/UBSan and Python suites, parser mutations, simulated storage/transport, actual USB/TLS/login diagnostics; no mock firmware transport | Physical brownout/watchdog/relay tests; native fake storage is not an NVS brownout measurement |
 | 10. Deliverables | Source, pinned build, partitions, configuration example, helper, static callback/key-hosting site, README, architecture, fixtures, bench checklist and verification record | Full installation acceptance remains incomplete until above live and physical checks pass |
 
@@ -27,6 +27,9 @@ Further blind repeated polling does not resolve this compatibility boundary.
 An owner-authorized retry after driving still returned a negative source time.
 The firmware now retains bounded request ID and timestamp metadata for a support
 case; AUTO remains blocked pending valid GPS or an authoritative Tesla correction.
+
+The completed dashboard revision has native/browser/build verification; its
+installation awaits USB reconnection. See [application checks](app_verification.md).
 
 Keep DISABLED, uncommissioned and dry-run until the corresponding physical and
 live checks actually pass. See [verification](verification.md) for measured facts

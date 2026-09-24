@@ -3,6 +3,8 @@
 #include "esp_wifi.h"
 #include "esp_netif.h"
 #include "esp_random.h"
+#include "esp_app_desc.h"
+#include "esp_heap_caps.h"
 #include "mbedtls/platform_util.h"
 #include <cstdio>
 #include <cstring>
@@ -22,10 +24,14 @@ LoginJob login_job;
 std::atomic<bool> login_busy{false};
 extern "C" const unsigned char html_start[] asm("_binary_index_html_start");
 extern "C" const unsigned char html_end[] asm("_binary_index_html_end");
+extern "C" const unsigned char css_start[] asm("_binary_style_css_start");
+extern "C" const unsigned char css_end[] asm("_binary_style_css_end");
+extern "C" const unsigned char js_start[] asm("_binary_app_js_start");
+extern "C" const unsigned char js_end[] asm("_binary_app_js_end");
 void headers(httpd_req_t* r) {
     httpd_resp_set_hdr(r,"Cache-Control","no-store");
     httpd_resp_set_hdr(r,"X-Content-Type-Options","nosniff");
-    httpd_resp_set_hdr(r,"Content-Security-Policy","default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+    httpd_resp_set_hdr(r,"Content-Security-Policy","default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
     httpd_resp_set_hdr(r,"Referrer-Policy","no-referrer");
 }
 esp_err_t reply(httpd_req_t* r,const char* body,const char* status="200 OK") {
@@ -84,6 +90,32 @@ esp_err_t root(httpd_req_t* r) {
     headers(r);httpd_resp_set_type(r,"text/html; charset=utf-8");
     return httpd_resp_send(r,reinterpret_cast<const char*>(html_start),html_end-html_start-1);
 }
+esp_err_t styles(httpd_req_t* r) {
+    headers(r);httpd_resp_set_type(r,"text/css; charset=utf-8");
+    return httpd_resp_send(r,reinterpret_cast<const char*>(css_start),css_end-css_start-1);
+}
+esp_err_t script(httpd_req_t* r) {
+    headers(r);httpd_resp_set_type(r,"text/javascript; charset=utf-8");
+    return httpd_resp_send(r,reinterpret_cast<const char*>(js_start),js_end-js_start-1);
+}
+esp_err_t events(httpd_req_t* r) {
+    if(!auth(r,false))return reply(r,"{\"error\":\"authentication_required\"}","401 Unauthorized");
+    const auto s=snapshot();char output[2048]={};size_t used=0;
+    int n=std::snprintf(output,sizeof output,"{\"events\":[");
+    if(n<0)return reply(r,"{\"error\":\"status_unavailable\"}","503 Service Unavailable");
+    used=n;
+    for(size_t i=0;i<s.events.size();++i) {
+        const auto& e=*s.events.newest(i);
+        n=std::snprintf(output+used,sizeof output-used,
+            "%s{\"uptime_s\":%lld,\"reason\":\"%s\",\"commanded_on\":%s}",
+            i?",":"",static_cast<long long>(e.at/1000),reason_name(e.reason),e.commanded?"true":"false");
+        if(n<0 || size_t(n)>=sizeof output-used)
+            return reply(r,"{\"error\":\"status_unavailable\"}","503 Service Unavailable");
+        used+=n;
+    }
+    if(used+3>=sizeof output)return reply(r,"{\"error\":\"status_unavailable\"}","503 Service Unavailable");
+    std::strcpy(output+used,"]}");return reply(r,output);
+}
 void finish_login(void*) {
     auto* r=login_job.request;
     if(!login_job.verified) {
@@ -137,7 +169,8 @@ esp_err_t login(httpd_req_t* r) {
 }
 esp_err_t status(httpd_req_t* r) {
     if(!auth(r,false))return reply(r,"{\"error\":\"authentication_required\"}","401 Unauthorized");
-    char output[4096]={};status_json(output,sizeof output);
+    char output[4096]={};
+    if(!status_json(output,sizeof output))return reply(r,"{\"error\":\"status_unavailable\"}","503 Service Unavailable");
     // CSRF lives only in page memory and this authenticated no-store response.
     httpd_resp_set_hdr(r,"X-CSRF-Token",csrf);
     return reply(r,output);
@@ -147,7 +180,10 @@ esp_err_t action(httpd_req_t* r) {
     char input[2048]={};Json j;
     if(!body(r,input,sizeof input) || !j.parse(input))return reply(r,"{\"error\":\"invalid_request\"}","400 Bad Request");
     auto s=snapshot();int op=j.get(0,"action");
-    if(j.equal(op,"off")) {
+    if(j.equal(op,"logout")) {
+        session.clear();
+        httpd_resp_set_hdr(r,"Set-Cookie","__Host-id=; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=0");
+    } else if(j.equal(op,"off")) {
         auto epoch=inhibit();s.config.disabled=true;
         if(!change_config(Change::Disabled,epoch))return reply(r,"{\"error\":\"off_inhibited_persistence_failed\"}","503 Service Unavailable");
     } else if(provisioning || critical_fault || !s.ready) {
@@ -163,7 +199,9 @@ esp_err_t action(httpd_req_t* r) {
             return reply(r,"{\"error\":\"timed_on_rejected\"}","409 Conflict");
     } else if(j.equal(op,"check_now")) {
         static Ms next_manual=0;
-        if(now_ms()<next_manual || network_busy)return reply(r,"{\"error\":\"check_throttled\"}","429 Too Many Requests");
+        if(s.config.disabled)return reply(r,"{\"error\":\"check_requires_auto\"}","409 Conflict");
+        if(!wifi_connected || !s.utc_ok)return reply(r,"{\"error\":\"connection_not_ready\"}","409 Conflict");
+        if(now_ms()<next_manual || network_busy || (s.error!=Error::None && now_ms()<s.next_poll))return reply(r,"{\"error\":\"check_throttled\"}","429 Too Many Requests");
         next_manual=now_ms()+60000;check_requested=true;
     } else if(j.equal(op,"settings")) {
         Config c=s.config;
@@ -172,8 +210,7 @@ esp_err_t action(httpd_req_t* r) {
         if(s.config.dry_run && !c.dry_run)return reply(r,"{\"error\":\"usb_commissioning_required\"}","409 Conflict");
         auto epoch=inhibit();
         if(!change_config(Change::Settings,epoch,&c))return reply(r,"{\"error\":\"persistence_failed\"}","503 Service Unavailable");
-    } else if(j.equal(op,"logout"))session.clear();
-    else return reply(r,"{\"error\":\"unknown_action\"}","400 Bad Request");
+    } else return reply(r,"{\"error\":\"unknown_action\"}","400 Bad Request");
     return reply(r,"{\"ok\":true}");
 }
 }
@@ -191,6 +228,8 @@ size_t status_json(char* out,size_t capacity) {
         "\"error\":\"%s\",\"reauthorization_needed\":%s,\"poll_busy\":%s,"
         "\"fleet_endpoint\":\"%s\",\"fleet_http_status\":%d,\"fleet_detail\":\"%s\",\"gps_source_value\":%.17g,\"gps_source_text\":\"%s\",\"fleet_txid\":\"%s\",\"fleet_date\":\"%s\",\"fleet_received_utc_s\":%lld,\"report_timestamp_text\":\"%s\",\"api_version\":%lld,\"reported_distance_m\":%.1f,"
         "\"attempts_this_boot\":[%lu,%lu,%lu],\"reserved_today\":[%lu,%lu,%lu],\"reserved_month\":[%lu,%lu,%lu],\"estimated_location_usd\":%.3f,"
+        "\"ready\":%s,\"fault\":%s,\"fault_source\":\"%s\",\"control_max_gap_ms\":%u,\"internal_heap_free\":%u,"
+        "\"firmware_version\":\"%s\",\"sdk_version\":\"%s\",\"session_left_s\":%lld,"
         "\"settings\":{\"vin\":\"%s\",\"home_lat\":%.7f,\"home_lon\":%.7f,\"enable_m\":%lu,\"disable_m\":%lu,"
         "\"max_age_s\":%lu,\"future_s\":%lu,\"lease_s\":%lu,\"sleep_s\":%lu,\"poll_s\":%lu,\"dwell_s\":%lu,"
         "\"daily_cap\":%lu,\"monthly_cap\":%lu,\"region\":\"%s\",\"dry_run\":%s}}",
@@ -205,6 +244,9 @@ size_t status_json(char* out,size_t capacity) {
         (unsigned long)s.fleet.attempts_this_boot[0],(unsigned long)s.fleet.attempts_this_boot[1],(unsigned long)s.fleet.attempts_this_boot[2],
         (unsigned long)s.budget.daily[0],(unsigned long)s.budget.daily[1],(unsigned long)s.budget.daily[2],
         (unsigned long)s.budget.monthly[0],(unsigned long)s.budget.monthly[1],(unsigned long)s.budget.monthly[2],s.budget.monthly[1]*0.002,
+        s.ready?"true":"false",critical_fault?"true":"false",fault_source.load()?fault_source.load():"none",
+        unsigned(control_max_gap_ms.load()),unsigned(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
+        esp_app_get_description()->version,esp_app_get_description()->idf_ver,static_cast<long long>(session.remaining(now_ms())/1000),
         s.config.vin,s.config.home_lat,s.config.home_lon,(unsigned long)s.config.enable_m,(unsigned long)s.config.disable_m,
         (unsigned long)s.config.max_age_s,(unsigned long)s.config.future_s,(unsigned long)s.config.lease_s,(unsigned long)s.config.sleep_s,
         (unsigned long)s.config.poll_s,(unsigned long)s.config.dwell_s,(unsigned long)s.config.daily_cap,(unsigned long)s.config.monthly_cap,
@@ -214,14 +256,15 @@ size_t status_json(char* out,size_t capacity) {
 bool start_management(const Profile& p) {
     profile=&p;
     httpd_ssl_config_t cfg=HTTPD_SSL_CONFIG_DEFAULT();
-    cfg.httpd.stack_size=24576;cfg.httpd.max_open_sockets=3;cfg.httpd.max_uri_handlers=4;
+    cfg.httpd.stack_size=24576;cfg.httpd.max_open_sockets=3;cfg.httpd.max_uri_handlers=7;
     cfg.httpd.recv_wait_timeout=2;cfg.httpd.send_wait_timeout=2;cfg.httpd.lru_purge_enable=true;
     cfg.servercert=reinterpret_cast<const uint8_t*>(p.certificate);cfg.servercert_len=std::strlen(p.certificate)+1;
     cfg.prvtkey_pem=reinterpret_cast<const uint8_t*>(p.private_key);cfg.prvtkey_len=std::strlen(p.private_key)+1;
     httpd_handle_t server=nullptr;
     if(httpd_ssl_start(&server,&cfg)!=ESP_OK)return false;
     struct Route {const char* path;httpd_method_t method;esp_err_t (*handler)(httpd_req_t*);};
-    const Route routes[]={{"/",HTTP_GET,root},{"/api/login",HTTP_POST,login},
+    const Route routes[]={{"/",HTTP_GET,root},{"/style.css",HTTP_GET,styles},{"/app.js",HTTP_GET,script},
+        {"/api/events",HTTP_GET,events},{"/api/login",HTTP_POST,login},
         {"/api/status",HTTP_GET,status},{"/api/action",HTTP_POST,action}};
     for(const auto& r:routes) {
         httpd_uri_t route={};route.uri=r.path;route.method=r.method;route.handler=r.handler;

@@ -12,7 +12,9 @@ have passed. AUTO acceptance remains blocked: the live GPS source timestamp is
 negative and fails validation. Relay/contact measurements remain unverified. See [verification evidence](docs/verification.md) and the mandatory
 [USB-only bench checklist](docs/bench_checklist.md). The [acceptance record](docs/acceptance.md)
 maps the original requirements to evidence and open checks. It ships **uncommissioned,
-DISABLED and dry-run**. Arming and physical-output enablement are separate USB
+DISABLED and dry-run**. The completed local dashboard revision has passed its
+[application checks](docs/app_verification.md); board installation is pending USB
+reconnection. Arming and physical-output enablement are separate USB
 operations; both leave DISABLED selected.
 
 ## What it controls
@@ -197,6 +199,22 @@ AUTO, persistent OFF/DISABLED, a timed ON override (one-hour default, eight-hour
 maximum), check-now, diagnostics and validated settings. Every state change needs
 an authenticated POST, exact Origin and CSRF token. A session lasts 15 minutes;
 login throttling rises after failures. No public router ports should be opened.
+
+The responsive dashboard distinguishes AUTO permission, actual GPIO command,
+reported distance and accepted GPS evidence. It includes the last 16 RAM control
+decisions, controller health, request usage, inline setting limits, and USB recovery
+guidance. A diagnostic download uses an explicit allowlist and omits VIN, home/GPS
+coordinates, client ID, passwords, cookies and tokens. Review it before sharing.
+
+Status is an explicitly refreshed snapshot. Local countdowns do not generate
+network requests; neither page loading nor refreshing status queries Tesla.
+Unsaved setting edits survive status refresh. Settings changes require confirmation,
+clear prior leases/overrides, and retain the selected AUTO/DISABLED configuration.
+OFF stays available during other pending requests and in confirmation dialogs.
+Timed ON is unavailable until commissioned and AUTO is selected. Check-now is
+rejected while DISABLED, without Wi-Fi/UTC, during a request or before backoff.
+The UI and server both enforce their respective restrictions; the device remains
+responsible for authorization. See [local app guide](docs/local_app.md).
 
 Select AUTO before requesting a timed override: DISABLED blocks overrides. A timed
 override conspicuously bypasses Tesla presence/connectivity, but does not create

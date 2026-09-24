@@ -73,3 +73,14 @@ TEST(lowered_caps_do_not_spend_old_reservations) {
     REQUIRE(budget.take(Endpoint::Location,100,20,20,40)==Error::None);
     REQUIRE(budget.take(Endpoint::Location,100,20,1,40)==Error::Budget);
 }
+
+#include "events.hpp"
+TEST(event_history_retains_newest_sixteen_without_changing_copied_snapshots) {
+    EventLog log;REQUIRE(log.size()==0);REQUIRE(log.newest(0)==nullptr);
+    for(int i=0;i<20;++i)log.record(Ms(i)*1000,Reason::Disabled,i%2);
+    REQUIRE(log.size()==16);REQUIRE(log.newest(0)->at==19000);REQUIRE(log.newest(15)->at==4000);
+    REQUIRE(log.newest(16)==nullptr);auto copy=log;
+    log.record(20000,Reason::Fault,false);
+    REQUIRE(copy.newest(0)->at==19000);REQUIRE(log.newest(0)->reason==Reason::Fault);
+    REQUIRE(!log.newest(0)->commanded);
+}

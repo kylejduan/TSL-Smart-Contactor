@@ -175,7 +175,22 @@ value and lease deadline. Successful normalization reports `gps_as_of_numeric_se
 fractional values, millisecond-scale values and non-numeric types remain rejected.
 The last explicit vehicle-status result is displayed independently of GPS acceptance;
 an ONLINE status followed by invalid GPS never establishes HOME permission.
-A 16-entry RAM decision log is bounded and volatile. No unbounded flash logs,
+A 16-entry RAM decision log is bounded and volatile, available to authenticated
+owners through `/api/events`, newest first. Status includes the remaining session
+time, fixed fault metadata, control-loop gap, free internal heap and build versions.
+Logout clears the server session and cookie even during a local recovery fault.
+Truncated status construction returns 503 rather than malformed successful JSON.
+
+HTML, JavaScript and CSS are separate embedded same-origin assets. CSP permits
+scripts/styles only from this device, without inline execution. Browser countdowns
+use elapsed monotonic time from a snapshot; they neither query Tesla nor claim
+live command feedback. Settings drafts survive refresh. Expiry/sign-out clears
+private page fields. OFF supersedes older pending UI results and is available in
+confirmation dialogs. The report export uses a field allowlist excluding vehicle
+identity, coordinates and all credentials. Host-only browser fixtures never enter
+the firmware build or production transport.
+
+The log remains bounded and volatile. No unbounded flash logs,
 recovery AP, BLE, RS485 controls, OTA or factory services are enabled.
 
 USB physical access is privileged: explicit replacement provisioning can replace

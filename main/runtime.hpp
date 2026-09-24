@@ -2,6 +2,7 @@
 #include "policy.hpp"
 #include "reliability.hpp"
 #include "client.hpp"
+#include "events.hpp"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include <atomic>
@@ -15,7 +16,6 @@ struct Profile {
     char certificate[2049]={}, private_key[4097]={}, origin[193]={};
     uint32_t crc=0;
 };
-struct Event { Ms at=0; Reason reason=Reason::NoAuthorization; bool commanded=false; };
 struct Snapshot {
     Config config{};
     Decision decision{};
@@ -26,8 +26,7 @@ struct Snapshot {
     Ms last_poll=0,next_poll=0;
     BudgetRecord budget{};
     FleetDiagnostics fleet{};
-    Event events[16]{};
-    unsigned event_count=0;
+    EventLog events{};
 };
 extern std::atomic<bool> critical_fault, wifi_connected, utc_synced, provisioning, network_busy;
 extern std::atomic<bool> check_requested;
