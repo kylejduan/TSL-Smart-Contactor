@@ -12,6 +12,8 @@ public:
     Error error() const {return error_;}
     int status() const {return status_;}
     const char* retry_after() const {return retry_;}
+    const char* transaction_id() const {return txid_;}
+    const char* response_date() const {return date_;}
     std::string_view body() const {return body_.view();}
 private:
     enum class State {Status,Headers,Fixed,Close,ChunkSize,ChunkData,ChunkCr,ChunkLf,Trailers,Done};
@@ -19,6 +21,8 @@ private:
     Error error_=Error::None;
     BodyBuffer& body_;
     char line_[1024]={},retry_[128]={};
+    char txid_[129]={},date_[30]={};
+    bool saw_txid_=false,saw_date_=false;
     size_t line_size_=0,header_bytes_=0,remaining_=0;
     bool saw_cr_=false,has_length_=false,chunked_=false;
     int status_=0;

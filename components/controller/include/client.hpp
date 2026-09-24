@@ -8,11 +8,16 @@ struct FleetDiagnostics {
     double gps_source_value=-1; // Finite numeric GPS timestamp only; never coordinates.
     char gps_source_text[64]={}; // Original bounded numeric lexeme, no strings/body dump.
     uint32_t attempts_this_boot[3]={}; // Actual transport attempts; reservations are separate.
+    char transaction_id[129]={},response_date[30]={};
+    int64_t received_utc_s=0;
+    VehicleMetadata vehicle_metadata{};
 };
 struct HttpResult {
     Error error=Error::None;
     int status=0;
     uint32_t retry_s=0;
+    char transaction_id[129]={},response_date[30]={};
+    int64_t received_utc_s=0;
     BodyBuffer body;
 };
 struct FleetIO {
@@ -44,6 +49,7 @@ private:
     Error account(Endpoint,const Config&);
     Error get(Endpoint,const Config&,Observation&);
     void request(Endpoint,const Config&,const char* access,const char* form,HttpResult&);
+    void diagnose(const char* endpoint,const HttpResult&);
     FleetIO& io_;
     const char* id_;
     TokenJournal journal_;

@@ -12,6 +12,12 @@ Error FleetClient::initialize() {
     auto e=journal_.load();
     return budget_.load()!=Error::None ? Error::Storage : e;
 }
+void FleetClient::diagnose(const char* endpoint,const HttpResult& result) {
+    diagnostic_={endpoint,error_name(result.error),result.status};
+    std::memcpy(diagnostic_.transaction_id,result.transaction_id,sizeof diagnostic_.transaction_id);
+    std::memcpy(diagnostic_.response_date,result.response_date,sizeof diagnostic_.response_date);
+    diagnostic_.received_utc_s=result.received_utc_s;
+}
 void FleetClient::request(Endpoint endpoint,const Config& cfg,const char* access,const char* form,HttpResult& result) {
     auto& count=attempts_[static_cast<size_t>(endpoint)];
     if(count<UINT32_MAX)++count;
@@ -34,7 +40,7 @@ Error FleetClient::refresh(const Config& cfg) {
     }
     std::snprintf(form,sizeof form,"grant_type=refresh_token&client_id=%s&refresh_token=%s",id,token);
     HttpResult result;request(Endpoint::Refresh,cfg,nullptr,form,result);
-    diagnostic_={"refresh",error_name(result.error),result.status};
+    diagnose("refresh",result);
     retry_=std::max(retry_,result.retry_s);wipe(form,sizeof form);wipe(token,sizeof token);
     e=result.error;Tokens tokens;
     if(e==Error::None) {
@@ -64,7 +70,7 @@ Error FleetClient::get(Endpoint endpoint,const Config& cfg,Observation& o) {
         if(!io_.current(o.generation))return Error::Unavailable;
         auto e=account(endpoint,cfg);if(e!=Error::None)return e;
         HttpResult result;request(endpoint,cfg,access_,nullptr,result);
-        diagnostic_={endpoint==Endpoint::Location?"location":"status",error_name(result.error),result.status};
+        diagnose(endpoint==Endpoint::Location?"location":"status",result);
         retry_=std::max(retry_,result.retry_s);
         if(result.error==Error::Authentication && attempt==0) {
             if(!io_.current(o.generation))return Error::Unavailable;
@@ -74,7 +80,7 @@ Error FleetClient::get(Endpoint endpoint,const Config& cfg,Observation& o) {
         if(result.error!=Error::None)return result.error;
         return parse_vehicle(result.body.view(),cfg.vin,endpoint==Endpoint::Location,o,
                              &diagnostic_.detail,&diagnostic_.gps_source_value,
-                             diagnostic_.gps_source_text,sizeof diagnostic_.gps_source_text);
+                             diagnostic_.gps_source_text,sizeof diagnostic_.gps_source_text,&diagnostic_.vehicle_metadata);
     }
     return Error::Authentication;
 }

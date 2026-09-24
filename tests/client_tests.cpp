@@ -16,7 +16,8 @@ struct StoreFake : Store {
         auto* c=static_cast<const char*>(p);data[key]={c,c+n};return true;
     }
 };
-struct Reply {Endpoint endpoint;int status;std::string body;Error transport_error=Error::None;};
+struct Reply {Endpoint endpoint;int status;std::string body;Error transport_error=Error::None;
+    const char* txid="";const char* date="";int64_t received=0;};
 const std::string token="{\"access_token\":\"synthetic-access\",\"refresh_token\":\"synthetic-next\",\"token_type\":\"Bearer\",\"expires_in\":1000}";
 const std::string asleep="{\"response\":{\"vin\":\"5YJ3E1EA7KF000001\",\"state\":\"asleep\"}}";
 const std::string online="{\"response\":{\"vin\":\"5YJ3E1EA7KF000001\",\"state\":\"online\"}}";
@@ -33,6 +34,8 @@ struct IO : FleetIO {
         if(e==Endpoint::Refresh) {REQUIRE(form);REQUIRE(!std::strstr(form,"client_secret"));}
         else REQUIRE(std::string(access)=="synthetic-access");
         requests.push_back(e);r.status=reply.status;
+        std::snprintf(r.transaction_id,sizeof r.transaction_id,"%s",reply.txid);
+        std::snprintf(r.response_date,sizeof r.response_date,"%s",reply.date);r.received_utc_s=reply.received;
         r.error=reply.transport_error==Error::None ? http_error(reply.status) : reply.transport_error;
         r.body.append(reply.body.data(),reply.body.size());
         if(hook)hook(e);
@@ -81,6 +84,22 @@ TEST(negative_gps_source_never_authorizes_even_with_online_status) {
     REQUIRE(std::string(f.client.diagnostics().detail)=="gps_as_of_out_of_range");
     Policy p;p.configure(config(),1,0);p.observe(o,30000,epoch,true);
     REQUIRE(!p.tick(30000).auto_home);REQUIRE(!p.tick(30000).commanded);
+}
+TEST(support_metadata_survives_invalid_gps_and_resets_for_next_response) {
+    Fixture f;
+    const std::string invalid=R"({"response":{"vin":"5YJ3E1EA7KF000001","api_version":83,"drive_state":{"latitude":0,"longitude":0,"gps_as_of":-123456789,"timestamp":1800000000000}}})";
+    f.io.replies={{Endpoint::Refresh,200,token},{Endpoint::Status,200,online},
+        {Endpoint::Location,200,invalid,Error::None,"synthetic-id","Wed, 23 Sep 2026 12:00:00 GMT",epoch}};
+    auto o=fix(epoch);REQUIRE(f.client.poll(config(),1,o)==Error::Malformed);
+    auto d=f.client.diagnostics();REQUIRE(std::string(d.transaction_id)=="synthetic-id");
+    REQUIRE(std::string(d.response_date)=="Wed, 23 Sep 2026 12:00:00 GMT");
+    REQUIRE(d.received_utc_s==epoch);REQUIRE(d.vehicle_metadata.api_version==83);
+    REQUIRE(std::string(d.vehicle_metadata.report_timestamp_text)=="1800000000000");
+    REQUIRE(o.kind==Evidence::Unknown);
+    f.io.replies={{Endpoint::Status,200,asleep}};
+    REQUIRE(f.client.poll(config(),1,o)==Error::None);d=f.client.diagnostics();
+    REQUIRE(!d.transaction_id[0]);REQUIRE(!d.response_date[0]);REQUIRE(d.received_utc_s==0);
+    REQUIRE(d.vehicle_metadata.api_version==-1);REQUIRE(!d.vehicle_metadata.report_timestamp_text[0]);
 }
 TEST(disabled_during_blocked_io_does_not_restore_or_issue_location) {
     Fixture f;Policy policy;policy.configure(config(),1,0);policy.observe(fix(epoch),0,epoch,true);
