@@ -53,9 +53,12 @@ the persistent AUTO/DISABLED selection. Fresh evidence is required to resume AUT
 
 The browser may enter dry-run. Arming, leaving dry-run, secret replacement and
 network/certificate provisioning remain USB-only. The page includes the exact
-helper commands and points to the physical bench checklist. Login verification
-can take about 10 seconds; the browser allows 30 seconds and prevents duplicate
-submissions. Sign-out remains available when a local fault requires recovery.
+helper commands and points to the physical bench checklist. The first successful
+login to an older profile takes about 10 seconds while it migrates the password
+verifier. Later logins derive the same PBKDF2 key in the browser and are normally
+under two seconds on the tested PC. The browser allows 30 seconds and prevents
+duplicate submissions. The browser keeps no password or derived key in persistent
+storage. Sign-out remains available when a local fault requires recovery.
 
 ## Diagnostics and privacy
 

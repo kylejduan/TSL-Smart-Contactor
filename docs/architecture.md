@@ -149,8 +149,14 @@ The device serves only HTTPS `/`, `POST /api/login`, authenticated
 `GET /api/status`, and authenticated/CSRF-protected `POST /api/action`.
 Sessions use 256-bit random IDs, a Secure/HttpOnly/SameSite=Strict cookie, exact
 configured Origin, an independent 256-bit CSRF token and a 15-minute monotonic
-expiry. Login throttling increases to five minutes. Passwords are salted PBKDF2
-SHA-256 (100,000 iterations). A single bounded password-verification task uses
+expiry. Login throttling increases to five minutes. The v2 password record stores
+SHA-256 of a domain-separated, salted PBKDF2-SHA-256 result (100,000 iterations).
+The browser derives the PBKDF2 result using Web Crypto and sends it over trusted
+HTTPS; the ESP32 checks the verifier quickly. That transmitted result is a reusable
+password equivalent, so TLS certificate validation and secret handling remain
+essential. The first successful login to a v1 record atomically commits a v2
+profile without changing the user's password or Tesla token. USB password checks
+still perform PBKDF2 on the device. A single bounded password-verification task uses
 ESP-IDF asynchronous requests; a concurrent login is throttled. Completion returns
 to the HTTP server task, which exclusively owns session/cookie state. An existing
 administrator session can issue OFF during password verification. Password buffers

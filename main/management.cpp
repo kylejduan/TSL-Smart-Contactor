@@ -11,14 +11,17 @@
 #include <ctime>
 namespace app {
 namespace {
-const Profile* profile=nullptr;
+Profile* profile=nullptr;
+std::atomic<uint32_t> auth_mode{1};
 Session session;
 char csrf[65]={};
 // One bounded verification job; sessions are still owned only by the HTTP task.
 struct LoginJob {
     httpd_req_t* request=nullptr;
     char password[129]={};
+    char material[65]={};
     std::atomic<bool> verified{false};
+    std::atomic<bool> storage_fault{false};
 };
 LoginJob login_job;
 std::atomic<bool> login_busy{false};
@@ -116,9 +119,17 @@ esp_err_t events(httpd_req_t* r) {
     if(used+3>=sizeof output)return reply(r,"{\"error\":\"status_unavailable\"}","503 Service Unavailable");
     std::strcpy(output+used,"]}");return reply(r,output);
 }
+esp_err_t login_info(httpd_req_t* r) {
+    char result[96]={};char salt[33]={};
+    for(size_t i=0;i<16;++i)std::snprintf(salt+i*2,3,"%02x",profile->salt[i]);
+    std::snprintf(result,sizeof result,"{\"version\":%lu,\"salt\":\"%s\",\"iterations\":100000}",
+                  static_cast<unsigned long>(auth_mode.load()),salt);
+    return reply(r,result);
+}
 void finish_login(void*) {
     auto* r=login_job.request;
-    if(!login_job.verified) {
+    if(login_job.storage_fault)reply(r,"{\"error\":\"login_unavailable\"}","503 Service Unavailable");
+    else if(!login_job.verified) {
         session.failed_login(now_ms());reply(r,"{\"error\":\"login_failed\"}","401 Unauthorized");
     } else {
         char id[65]={},header[192]={};random_hex(id);random_hex(csrf);
@@ -132,8 +143,15 @@ void finish_login(void*) {
     login_job.request=nullptr;login_busy=false;
 }
 void verify_login(void*) {
-    login_job.verified=verify_password(*profile,login_job.password);
+    login_job.verified=login_job.material[0]
+        ? verify_derived(*profile,login_job.material)
+        : verify_password(*profile,login_job.password);
+    if(login_job.verified && profile->version==1) {
+        if(migrate_password(*profile))auth_mode.store(2);
+        else {login_job.storage_fault=true;login_job.verified=false;fail("password_migration_write");}
+    }
     mbedtls_platform_zeroize(login_job.password,sizeof login_job.password);
+    mbedtls_platform_zeroize(login_job.material,sizeof login_job.material);
     // Publish the result in HTTPD context so no session or cookie state is raced.
     if(httpd_queue_work(login_job.request->handle,finish_login,nullptr)!=ESP_OK) {
         fail("login_result_queue");
@@ -146,20 +164,28 @@ esp_err_t login(httpd_req_t* r) {
     if(!same_origin(r))return reply(r,"{\"error\":\"origin\"}","403 Forbidden");
     if(login_busy || !session.login_allowed(now_ms()))return reply(r,"{\"error\":\"login_throttled\"}","429 Too Many Requests");
     char input[512]={};Json j;
-    bool ok=body(r,input,sizeof input) && j.parse(input) &&
-        j.string(j.get(0,"password"),login_job.password,sizeof login_job.password);
+    bool ok=body(r,input,sizeof input) && j.parse(input);
+    if(ok) {
+        bool raw=j.string(j.get(0,"password"),login_job.password,sizeof login_job.password);
+        bool derived=j.string(j.get(0,"material"),login_job.material,sizeof login_job.material);
+        ok=(raw!=derived) && (raw || derived);
+    }
     mbedtls_platform_zeroize(input,sizeof input);
     if(!ok) {
         mbedtls_platform_zeroize(login_job.password,sizeof login_job.password);
+        mbedtls_platform_zeroize(login_job.material,sizeof login_job.material);
         session.failed_login(now_ms());return reply(r,"{\"error\":\"login_failed\"}","401 Unauthorized");
     }
     if(httpd_req_async_handler_begin(r,&login_job.request)!=ESP_OK) {
         mbedtls_platform_zeroize(login_job.password,sizeof login_job.password);
+        mbedtls_platform_zeroize(login_job.material,sizeof login_job.material);
         fail("login_request_allocation");return reply(r,"{\"error\":\"login_unavailable\"}","503 Service Unavailable");
     }
     login_busy=true;
+    login_job.verified=false;login_job.storage_fault=false;
     if(xTaskCreate(verify_login,"password_check",6144,nullptr,2,nullptr)!=pdPASS) {
         mbedtls_platform_zeroize(login_job.password,sizeof login_job.password);
+        mbedtls_platform_zeroize(login_job.material,sizeof login_job.material);
         fail("login_task");
         reply(login_job.request,"{\"error\":\"login_unavailable\"}","503 Service Unavailable");
         httpd_req_async_handler_complete(login_job.request);
@@ -253,10 +279,11 @@ size_t status_json(char* out,size_t capacity) {
         s.config.region?"EU":"NA",s.config.dry_run?"true":"false");
     return n>0 && size_t(n)<capacity ? size_t(n) : 0;
 }
-bool start_management(const Profile& p) {
+bool start_management(Profile& p) {
     profile=&p;
+    auth_mode.store(p.version);
     httpd_ssl_config_t cfg=HTTPD_SSL_CONFIG_DEFAULT();
-    cfg.httpd.stack_size=24576;cfg.httpd.max_open_sockets=3;cfg.httpd.max_uri_handlers=7;
+    cfg.httpd.stack_size=24576;cfg.httpd.max_open_sockets=3;cfg.httpd.max_uri_handlers=8;
     cfg.httpd.recv_wait_timeout=2;cfg.httpd.send_wait_timeout=2;cfg.httpd.lru_purge_enable=true;
     cfg.servercert=reinterpret_cast<const uint8_t*>(p.certificate);cfg.servercert_len=std::strlen(p.certificate)+1;
     cfg.prvtkey_pem=reinterpret_cast<const uint8_t*>(p.private_key);cfg.prvtkey_len=std::strlen(p.private_key)+1;
@@ -264,7 +291,8 @@ bool start_management(const Profile& p) {
     if(httpd_ssl_start(&server,&cfg)!=ESP_OK)return false;
     struct Route {const char* path;httpd_method_t method;esp_err_t (*handler)(httpd_req_t*);};
     const Route routes[]={{"/",HTTP_GET,root},{"/style.css",HTTP_GET,styles},{"/app.js",HTTP_GET,script},
-        {"/api/events",HTTP_GET,events},{"/api/login",HTTP_POST,login},
+        {"/api/events",HTTP_GET,events},{"/api/login-info",HTTP_GET,login_info},
+        {"/api/login",HTTP_POST,login},
         {"/api/status",HTTP_GET,status},{"/api/action",HTTP_POST,action}};
     for(const auto& r:routes) {
         httpd_uri_t route={};route.uri=r.path;route.method=r.method;route.handler=r.handler;

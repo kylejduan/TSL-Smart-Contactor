@@ -89,3 +89,32 @@ dashboard work. Earlier image results remain in [verification.md](verification.m
 The known negative GPS source-time issue still prevents valid live AUTO acceptance.
 Supervised polarity, continuity, boot-pulse, watchdog and brownout checks remain
 separate; browser/native tests do not satisfy those measurements.
+
+## Faster password login, 2026-09-24 UTC
+
+The password remains the administrator credential. The v2 profile stores a
+domain-separated SHA-256 verifier of the existing 100,000-round PBKDF2 output.
+Web Crypto performs PBKDF2 in the browser; the ESP32 does the final digest and
+constant-time comparison. The public login-info response contains only the record
+version, salt and work factor. The derived material is a reusable password
+equivalent in transit, protected by the same trusted local HTTPS as the former raw
+password. Nothing is saved in browser storage. A v1 profile migrates on the first
+successful login using a single durable NVS profile write; failed writes inhibit
+output. USB password checks still take the slower path.
+
+ESP-IDF v5.5.2 built a **990,784-byte** application, SHA-256
+`a5bd71d2f8795566a791c25ea6abe3715f3794127858df9d01af0dd1b87be12b`.
+The 58 native tests, 12 Python tests, JavaScript syntax check and 9 synthetic
+browser scenarios passed. The browser fixture rejects a wrong derived password and
+asserts that sign-in sends derived material rather than the raw password.
+
+With the board DISABLED, uncommissioned, dry-run and OFF commanded, esptool 4.12.0
+verified the app-only flash hash at `0x30000`, preserving NVS. A trusted Windows
+HTTPS check observed v1, then a **9.013 s** first login and durable migration to
+v2. The next login request completed in **0.665 s**. After an authenticated reboot,
+USB reported an intact profile and usable token journal; v2 remained selected and
+another login request completed in **0.752 s**. A wrong derived value returned 401,
+and its immediate retry returned 429. Final authenticated state remained DISABLED,
+uncommissioned, dry-run, OFF commanded, with no fault, maximum observed control
+gap **51 ms**, and Fleet attempt counters `[0, 0, 0]`. These are measurements on
+this PC and LAN, not a guaranteed maximum on every browser or network.

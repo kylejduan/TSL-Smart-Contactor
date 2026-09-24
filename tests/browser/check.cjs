@@ -33,6 +33,7 @@ const fs = require('node:fs/promises');
       await page.locator('#password').fill('synthetic-invalid-password'); await page.locator('#sign-in').click();
       await waitText('message', 'Sign-in failed'); assert.equal(await page.locator('#password').inputValue(), '');
       await signIn(); assert.equal(await page.locator('#timed').isDisabled(), true);
+      assert.equal((await read()).login_type, 'material');
       assert.equal(await page.locator('#check').isDisabled(), true);
       assert.equal(await page.locator('#off').isEnabled(), true);
       await waitText('gps-state', 'Invalid time'); await waitText('distance', '2.3 m');

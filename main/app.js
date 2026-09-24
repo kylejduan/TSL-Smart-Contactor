@@ -51,6 +51,22 @@
   let csrf = '', state = null, events = [], receivedAt = 0, dirty = false;
   let epoch = 0, refreshId = 0, pending = false, loginPending = false;
   let eventAvailable = false;
+  async function loginMaterial(password, saltHex, iterations) {
+    if (!crypto.subtle || !/^[0-9a-f]{32}$/.test(saltHex) || iterations !== 100000)
+      throw Error('Trusted HTTPS and valid controller login parameters are required.');
+    const secret = new TextEncoder().encode(password);
+    if (secret.length < 16 || secret.length > 128) {
+      secret.fill(0); throw Error('Password must be 16–128 UTF-8 bytes.');
+    }
+    const salt = Uint8Array.from(saltHex.match(/../g), pair => parseInt(pair, 16));
+    try {
+      const key = await crypto.subtle.importKey('raw', secret, 'PBKDF2', false, ['deriveBits']);
+      const material = new Uint8Array(await crypto.subtle.deriveBits(
+        { name: 'PBKDF2', salt, iterations, hash: 'SHA-256' }, key, 256));
+      const hex = Array.from(material, byte => byte.toString(16).padStart(2, '0')).join('');
+      material.fill(0); return hex;
+    } finally { secret.fill(0); salt.fill(0); }
+  }
   for (const [key, label, type, group, min, max, hint] of fields) {
     const row = document.createElement('label');
     row.textContent = label;
@@ -254,9 +270,20 @@
   }
   $('login-form').addEventListener('submit', async e => {
     e.preventDefault(); if (loginPending) return;
-    loginPending = true; $('sign-in').disabled = true; message('Verifying password… allow about 10 seconds.');
+    loginPending = true; $('sign-in').disabled = true; message('Verifying password…');
     try {
-      await call('/api/login', { password: $('password').value }, 30000);
+      const info = await call('/api/login-info');
+      if (![1, 2].includes(info.version) || !/^[0-9a-f]{32}$/.test(info.salt) || info.iterations !== 100000)
+        throw Error('Controller login parameters are invalid.');
+      let credential;
+      if (info.version === 1) {
+        message('Updating password verifier on this first sign-in; allow about 10 seconds.');
+        credential = { password: $('password').value };
+      } else {
+        credential = { material: await loginMaterial($('password').value, info.salt, info.iterations) };
+      }
+      await call('/api/login', credential, 30000);
+      credential = null;
       $('password').value = ''; ++epoch; await refresh(true); message('Signed in. Session lasts 15 minutes.');
     } catch (e) { message(e.message, true); }
     finally { $('password').value = ''; loginPending = false; $('sign-in').disabled = false; }

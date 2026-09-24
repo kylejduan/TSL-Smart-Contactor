@@ -275,7 +275,7 @@ before discounts and reservation counts by endpoint in status/location/refresh o
 | Clock/Wi-Fi | Check 2.4 GHz Wi-Fi, DNS and SNTP reachability. HTTPS management remains local. There is no unattended setup hotspot. |
 | Local certificate warning | Check URL/SAN, local CA trust and expiry. Generate a new local directory/certificate and explicitly reprovision; do not disable verification. |
 | Browser connection refused | Enter the full `https://` device URL. The controller serves port 443 only; port 80 has no HTTP service or redirect. Use USB diagnostics to confirm its current IP. |
-| Local login timeout | Password verification took about nine seconds on the bench. Allow 30 seconds for login and authenticated USB commands; do not reduce password hashing strength or retry rapidly. |
+| Local login timeout | Existing profiles take about nine seconds on their first successful login while upgrading the verifier. Later browser logins took 0.7–0.8 seconds for the HTTPS request on the tested Windows client; slower clients may take longer. USB password checks still run the KDF on the ESP32 and need up to 30 seconds. Do not retry rapidly. |
 | Storage fault/pending provisioning | Output is inhibited. Recover over USB without erasing flash automatically; interrupted multi-record provisioning must be completed explicitly. |
 | Forgotten administrator password | Physical USB replacement provisioning can set a new password. It replaces credentials and resets all arming; physical access is privileged. |
 

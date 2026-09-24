@@ -6,6 +6,7 @@ It never contacts Tesla or a device and uses no real provisioning data.
 """
 import argparse
 import copy
+import hashlib
 import json
 import threading
 import time
@@ -28,6 +29,8 @@ BASE = dict(mode='DISABLED', commissioned=False, dry_run=True, auto_home=False, 
     fault=False, fault_source='none', control_max_gap_ms=53, internal_heap_free=79000,
     firmware_version='synthetic-test', sdk_version='v5.5.2', session_left_s=900, settings=SETTINGS)
 HISTORY = [dict(uptime_s=500, reason='uncommissioned', commanded_on=False)]
+SALT = bytes.fromhex('00112233445566778899aabbccddeeff')
+MATERIAL = hashlib.pbkdf2_hmac('sha256', b'synthetic-admin-password', SALT, 100000).hex()
 
 class Fixture:
     def __init__(self):
@@ -41,6 +44,7 @@ class Fixture:
         self.status_delay = 0
         self.action_delay = 0
         self.events_fail = False
+        self.login_type = None
 
 FIXTURE = Fixture()
 
@@ -67,7 +71,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.send((ROOT/name).read_bytes(), content_type=kind)
         with FIXTURE.lock:
             if self.path == '/__test':
-                return self.send(dict(state=FIXTURE.state, requests=FIXTURE.requests))
+                return self.send(dict(state=FIXTURE.state, requests=FIXTURE.requests, login_type=FIXTURE.login_type))
+            if self.path == '/api/login-info':
+                return self.send(dict(version=2, salt=SALT.hex(), iterations=100000))
             FIXTURE.requests.append(self.path)
             if not FIXTURE.auth: return self.send(dict(error='authentication_required'), 401)
             if self.path == '/api/status':
@@ -90,7 +96,8 @@ class Handler(BaseHTTPRequestHandler):
                     if key in body:setattr(FIXTURE,key,body[key])
                 return self.send(dict(ok=True))
             if self.path == '/api/login':
-                if body.get('password')!='synthetic-admin-password':return self.send(dict(error='login_failed'),401)
+                FIXTURE.login_type = 'material' if 'material' in body else 'password'
+                if body.get('material')!=MATERIAL:return self.send(dict(error='login_failed'),401)
                 FIXTURE.auth=True
                 return self.send(dict(ok=True))
             action=body.get('action');FIXTURE.requests.append(action)
