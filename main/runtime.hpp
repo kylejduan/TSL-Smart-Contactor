@@ -9,7 +9,7 @@
 namespace app {
 using namespace tsl;
 struct Profile {
-    uint32_t version=1;
+    uint32_t version=2;
     Config config{};
     char ssid[33]={}, wifi_password[65]={}, client_id[129]={};
     uint8_t salt[16]={}, password_hash[32]={};
@@ -42,7 +42,7 @@ bool submit(const Observation&);
 void network_status(Vehicle,Error,Ms last,Ms next,const BudgetRecord&,bool paused,FleetDiagnostics);
 void start_wifi(const Profile&);
 void start_tesla(const Profile&);
-bool start_management(const Profile&);
+bool start_management(Profile&);
 void usb_task(void*);
 size_t status_json(char* out,size_t capacity);
 }

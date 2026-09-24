@@ -16,8 +16,12 @@ NvsStore& storage();
 ReadResult load_profile(Profile&);
 bool save_profile(Profile&);
 bool valid_profile(const Profile&);
+bool intact_profile(const Profile&);
 bool verify_password(const Profile&,const char* password);
 bool password_hash(const char*,const uint8_t* salt,uint8_t* output);
+bool password_verifier(const uint8_t* material,uint8_t* output);
+bool verify_derived(const Profile&,const char* material_hex);
+bool migrate_password(Profile&);
 enum class Change { Settings, Disabled, Auto, Arm, EnableOutput };
 bool change_config(Change,uint32_t epoch,const Config* settings=nullptr);
 }

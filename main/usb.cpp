@@ -21,7 +21,7 @@ void diagnostics() {
     // Metadata only. Never emit credentials, profile fields or token contents.
     static Profile p;
     auto raw=storage().read("profile",&p,sizeof p);
-    bool valid=raw==ReadResult::Ok && intact(p) && valid_config(p.config);
+    bool valid=raw==ReadResult::Ok && intact_profile(p) && valid_config(p.config);
     mbedtls_platform_zeroize(&p,sizeof p);
     uint8_t pending=0;
     auto marker=storage().read("provisioning",&pending,sizeof pending);
@@ -101,7 +101,10 @@ bool provision(const Json& j) {
     next.config.commissioned=false;next.config.disabled=true;next.config.dry_run=true;
     esp_fill_random(next.salt,sizeof next.salt);
     provision_stage="password_hash";
-    ok=ok && password_hash(pw,next.salt,next.password_hash);
+    uint8_t material[32]={};
+    ok=ok && password_hash(pw,next.salt,material);
+    ok=ok && password_verifier(material,next.password_hash);
+    mbedtls_platform_zeroize(material,sizeof material);
     provision_stage="profile_validation";
     ok=ok && valid_profile(next);
     if(ok) {
