@@ -41,6 +41,7 @@ public:
     Ms refresh_at() const {return access_until_;}
     uint32_t retry_s() const {return retry_;}
     const BudgetRecord& counts() const {return budget_.counts();}
+    void clear_diagnostics() {diagnostic_={};}
     FleetDiagnostics diagnostics() const {
         auto d=diagnostic_;
         for(size_t i=0;i<3;++i)d.attempts_this_boot[i]=attempts_[i];

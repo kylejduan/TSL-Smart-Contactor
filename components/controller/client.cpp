@@ -70,6 +70,9 @@ Error FleetClient::get(Endpoint endpoint,const Config& cfg,Observation& o) {
         if(!io_.current(o.generation))return Error::Unavailable;
         auto e=account(endpoint,cfg);if(e!=Error::None)return e;
         HttpResult result;request(endpoint,cfg,access_,nullptr,result);
+        // A request can finish after OFF or a VIN/home change. Discard its body,
+        // status and diagnostic fields before they can reach the current view.
+        if(!io_.current(o.generation))return Error::Unavailable;
         diagnose(endpoint==Endpoint::Location?"location":"status",result);
         retry_=std::max(retry_,result.retry_s);
         if(result.error==Error::Authentication && attempt==0) {

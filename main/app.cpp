@@ -42,7 +42,14 @@ uint32_t inhibit() {
 bool configure(const Config& c,uint32_t epoch) {
     portENTER_CRITICAL(&lock);
     bool ok=epoch==state.generation;
-    if(ok) {new_config=c;config_epoch=epoch;pending_config=true;}
+    if(ok) {
+        if(!c.disabled || std::strncmp(c.vin,state.config.vin,sizeof c.vin) ||
+           c.home_lat!=state.config.home_lat || c.home_lon!=state.config.home_lon) {
+            state.vehicle=Vehicle::Unknown;state.error=Error::None;
+            state.last_poll=0;state.next_poll=0;state.polling_paused=false;state.fleet={};
+        }
+        new_config=c;config_epoch=epoch;pending_config=true;
+    }
     portEXIT_CRITICAL(&lock);return ok;
 }
 bool timed(uint32_t seconds,uint32_t epoch) {
@@ -56,10 +63,15 @@ bool submit(const Observation& o) {
     if(!obs_queue || xQueueSend(obs_queue,&o,0)!=pdTRUE) {fail("observation_queue");return false;}
     return true;
 }
-void network_status(Vehicle v,Error e,Ms last,Ms next,const BudgetRecord& b,bool paused,FleetDiagnostics diagnostic) {
+void network_status(uint32_t generation,Vehicle v,Error e,Ms last,Ms next,const BudgetRecord& b,bool paused,FleetDiagnostics diagnostic) {
     portENTER_CRITICAL(&lock);
-    state.vehicle=v;state.error=e;state.last_poll=last;state.next_poll=next;state.budget=b;state.polling_paused=paused;
-    state.fleet=diagnostic;
+    // Request reservations are global accounting, even while the user has OFF
+    // selected. Vehicle evidence and its diagnostics belong to one generation.
+    if(state.generation==generation)state.budget=b;
+    if(state.generation==generation && !state.inhibited && !state.config.disabled) {
+        state.vehicle=v;state.error=e;state.last_poll=last;state.next_poll=next;
+        state.polling_paused=paused;state.fleet=diagnostic;
+    }
     portEXIT_CRITICAL(&lock);
 }
 static void allocation_failed(size_t size,uint32_t,const char*) {

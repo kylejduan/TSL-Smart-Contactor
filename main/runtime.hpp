@@ -40,7 +40,7 @@ uint32_t inhibit(); // Immediate OFF + invalidates in-flight and queued requests
 bool configure(const Config&,uint32_t epoch);
 bool timed(uint32_t seconds,uint32_t epoch);
 bool submit(const Observation&);
-void network_status(Vehicle,Error,Ms last,Ms next,const BudgetRecord&,bool paused,FleetDiagnostics);
+void network_status(uint32_t generation,Vehicle,Error,Ms last,Ms next,const BudgetRecord&,bool paused,FleetDiagnostics);
 void start_wifi(const Profile&);
 void start_tesla(const Profile&);
 bool start_management(Profile&);

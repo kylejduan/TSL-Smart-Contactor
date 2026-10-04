@@ -24,8 +24,14 @@ void worker(void* context) {
     auto initial=client.initialize();
     if(initial==Error::Storage)fail("tesla_journal_load");
     Ms last_success=0,auth_retry_after=0;Vehicle vehicle=Vehicle::Unknown;Error error=initial;
+    uint32_t view_generation=snapshot().generation;
     while(true) {
         auto s=snapshot();
+        if(s.generation!=view_generation) {
+            view_generation=s.generation;
+            vehicle=Vehicle::Unknown;error=Error::None;last_success=0;
+            client.clear_diagnostics();
+        }
         if(check_requested.exchange(false))scheduler.check_now(now_ms());
         if(!provisioning && !critical_fault && s.ready && !s.config.disabled) {
             bool poll=scheduler.due(now_ms());
@@ -51,7 +57,7 @@ void worker(void* context) {
                 network_busy=false;
             }
         }
-        network_status(vehicle,error,last_success,scheduler.next(),client.counts(),scheduler.paused(),client.diagnostics());
+        network_status(s.generation,vehicle,error,last_success,scheduler.next(),client.counts(),scheduler.paused(),client.diagnostics());
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }

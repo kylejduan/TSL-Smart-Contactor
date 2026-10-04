@@ -126,6 +126,24 @@ TEST(disabled_during_blocked_io_does_not_restore_or_issue_location) {
     auto o=fix(epoch+32,2);REQUIRE(f.client.poll(config(),1,o)==Error::Unavailable);
     policy.observe(o,32000,epoch+32,true);REQUIRE(!policy.tick(32000).commanded);
 }
+TEST(home_change_during_location_response_discards_late_data_and_diagnostics) {
+    Fixture f;
+    f.io.replies={{Endpoint::Refresh,200,token},{Endpoint::Status,200,online},{Endpoint::Location,200,location}};
+    auto first=fix(epoch);REQUIRE(f.client.poll(config(),1,first)==Error::None);
+    REQUIRE(std::string(f.client.diagnostics().endpoint)=="location");
+    const std::string stale_location=R"({"response":{"vin":"5YJ3E1EA7KF000001","drive_state":{"latitude":1,"longitude":0,"gps_as_of":1800000060}}})";
+    f.io.replies={{Endpoint::Status,200,online},{Endpoint::Location,200,stale_location}};
+    f.io.hook=[&](Endpoint e) {if(e==Endpoint::Location)f.io.generation=2;};
+    auto late=fix(epoch+60);REQUIRE(f.client.poll(config(),1,late)==Error::Unavailable);
+    REQUIRE(late.kind==Evidence::Unknown);REQUIRE(late.lat==0);
+    auto d=f.client.diagnostics();
+    REQUIRE(std::string(d.endpoint)=="status");
+    REQUIRE(d.reported_distance_m==-1);
+    REQUIRE(d.attempts_this_boot[1]==2);
+    f.client.clear_diagnostics();d=f.client.diagnostics();
+    REQUIRE(std::string(d.endpoint)=="none");
+    REQUIRE(d.attempts_this_boot[1]==2);
+}
 TEST(network_failure_cannot_keep_an_expired_home_lease_alive) {
     for(auto failure:{Error::Timeout,Error::Transport,Error::TooLarge}) {
         Fixture f;Policy policy;policy.configure(config(),1,0);
