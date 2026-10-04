@@ -5,7 +5,7 @@
 #include <string_view>
 namespace tsl {
 enum class Error : uint8_t {
-    None, Transport, Timeout, TooLarge, Malformed, Authentication, Permission,
+    None, Transport, Timeout, TooLarge, Malformed, SourceTime, Authentication, Permission,
     RateLimit, Billing, Unavailable, Server, Redirect, Budget, Storage, Reauthorize, Clock, Wifi
 };
 const char* error_name(Error e); // Only these fixed labels go to logs/status.

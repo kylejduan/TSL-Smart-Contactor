@@ -20,7 +20,7 @@ SETTINGS = dict(vin='5YJ3E1EA7KF000001', home_lat=0, home_lon=0, region='NA', en
 BASE = dict(mode='DISABLED', commissioned=False, dry_run=True, auto_home=False, desired_on=False,
     gpio_command='OFF commanded', reason='uncommissioned', lease_s=0, override_s=0, vehicle='online',
     location_age_s=-1, distance_m=-1, reported_distance_m=2.3, last_success_uptime_s=0, next_poll_s=-1,
-    wifi_connected=True, rssi_dbm=-48, uptime_s=600, utc_ready=True, error='malformed_data',
+    wifi_connected=True, rssi_dbm=-48, uptime_s=600, utc_ready=True, error='gps_source_time_unusable',
     reauthorization_needed=False, poll_busy=False, fleet_endpoint='location', fleet_http_status=200,
     fleet_detail='gps_as_of_out_of_range', gps_source_value=-123456789, gps_source_text='-123456789',
     fleet_txid='synthetic-request-id', fleet_date='Wed, 23 Sep 2026 12:00:00 GMT', fleet_received_utc_s=1790164800,

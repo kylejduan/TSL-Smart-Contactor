@@ -37,6 +37,8 @@ const fs = require('node:fs/promises');
       assert.equal(await page.locator('#check').isDisabled(), true);
       assert.equal(await page.locator('#off').isEnabled(), true);
       await waitText('gps-state', 'Invalid time'); await waitText('distance', '2.3 m');
+      await waitText('alert', 'invalid GPS timestamp');
+      await waitText('status', 'GPS acquisition time');
       assert.equal(await page.locator('#events li').count(), 1);
     });
     await run('countdowns never cause background requests', async () => {

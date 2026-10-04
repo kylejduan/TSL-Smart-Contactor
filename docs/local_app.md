@@ -13,8 +13,10 @@ local CA are generated during USB preparation. Port 80 is not served.
   and dry-run do not create this permission.
 - **Reported position** is the distance from returned coordinates to configured
   home, labeled freshness unverified. An invalid timestamp cannot authorize AUTO.
-- **Location evidence** distinguishes an accepted fix from missing or invalid GPS
-  source time. General report timestamps are diagnostic only.
+- **Location evidence** distinguishes an accepted fix from missing or unusable GPS
+  source time. The latter has its own `gps_source_time_unusable` error category;
+  malformed JSON or coordinates remain `malformed_data`. General report timestamps
+  are diagnostic only.
 - **Readiness** lists profile/clock/network, physical bench acknowledgement,
   physical-output enablement and AUTO evidence separately.
 

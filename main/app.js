@@ -27,6 +27,7 @@
     persistence_failed: 'Settings could not be saved. Output is inhibited; inspect USB diagnostics.',
     off_inhibited_persistence_failed: 'OFF was requested, but saving DISABLED failed. Inspect USB diagnostics.',
     malformed_data: 'Tesla returned unusable data. Existing authorization will not be renewed.',
+    gps_source_time_unusable: 'Tesla location has no usable GPS acquisition time. AUTO cannot renew from this position.',
     reauthorization_required: 'Tesla consent must be renewed through the USB onboarding helper.',
     missing_permission: 'Tesla read-only permissions are missing. Review consent through the helper.',
     billing: 'Tesla rejected billing. Review the developer account before requesting another check.',
@@ -160,7 +161,7 @@
     $('vehicle').textContent = readable(s.vehicle);
     $('distance').textContent = s.reported_distance_m < 0 ? 'Unavailable' : s.reported_distance_m.toFixed(1) + ' m';
     $('position-note').textContent = 'From configured home · freshness unverified';
-    const gpsInvalid = s.fleet_endpoint === 'location' && s.fleet_detail.startsWith('gps_as_of_') && s.error === 'malformed_data';
+    const gpsInvalid = s.fleet_endpoint === 'location' && s.fleet_detail.startsWith('gps_as_of_') && s.error === 'gps_source_time_unusable';
     $('gps-state').textContent = gpsInvalid ? 'Invalid time' : s.location_age_s >= 0 ? 'Accepted fix' : 'No accepted fix';
     $('gps-note').textContent = gpsInvalid ? 'Reported position cannot renew AUTO.' : s.location_age_s >= 0 ? 'Source age at snapshot: ' + duration(s.location_age_s) : 'Waiting for qualifying source-time evidence.';
     const alert = s.fault ? 'Local fault: ' + readable(s.fault_source) + '. Output is inhibited. Use USB recovery.' :

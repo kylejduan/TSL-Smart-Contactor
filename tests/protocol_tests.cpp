@@ -10,15 +10,17 @@ TEST(real_parser_uses_drive_state_gps_source_only) {
     Observation o;
     REQUIRE(parse_vehicle(body("\"latitude\":0,\"longitude\":0,\"gps_as_of\":1800000000,\"timestamp\":1800000600000"),config().vin,true,o)==Error::None);
     REQUIRE(o.source_s==epoch);REQUIRE(o.kind==Evidence::Location);
-    REQUIRE(parse_vehicle(body("\"latitude\":0,\"longitude\":0,\"timestamp\":1800000000000"),config().vin,true,o)==Error::Malformed);
+    REQUIRE(parse_vehicle(body("\"latitude\":0,\"longitude\":0,\"timestamp\":1800000000000"),config().vin,true,o)==Error::SourceTime);
 }
 TEST(missing_null_invalid_and_wrong_units_fail_closed) {
     for(auto fields:{"\"latitude\":null,\"longitude\":0,\"gps_as_of\":1800000000",
         "\"latitude\":0,\"gps_as_of\":1800000000", "\"latitude\":91,\"longitude\":0,\"gps_as_of\":1800000000",
-        "\"latitude\":0,\"longitude\":0,\"gps_as_of\":1800000000000",
-        "\"latitude\":0,\"longitude\":0,\"gps_as_of\":1800000000.5",
         "\"latitude\":\"0\",\"longitude\":0,\"gps_as_of\":1800000000"}) {
         Observation o;REQUIRE(parse_vehicle(body(fields),config().vin,true,o)==Error::Malformed);
+    }
+    for(auto fields:{"\"latitude\":0,\"longitude\":0,\"gps_as_of\":1800000000000",
+        "\"latitude\":0,\"longitude\":0,\"gps_as_of\":1800000000.5"}) {
+        Observation o;REQUIRE(parse_vehicle(body(fields),config().vin,true,o)==Error::SourceTime);
     }
 }
 TEST(status_does_not_confuse_online_offline_sleep_or_home) {
@@ -37,7 +39,7 @@ TEST(location_diagnostics_distinguish_missing_null_and_invalid_source_without_va
         {",\"gps_as_of\":\"1800000000\"","gps_as_of_not_numeric"},
         {",\"gps_as_of\":1800000000.5","gps_as_of_fractional_seconds"}}) {
         Observation o;const char* detail=nullptr;double source=999;
-        REQUIRE(parse_vehicle(body(coordinates+item.first),config().vin,true,o,&detail,&source)==Error::Malformed);
+        REQUIRE(parse_vehicle(body(coordinates+item.first),config().vin,true,o,&detail,&source)==Error::SourceTime);
         REQUIRE(std::string(detail)==item.second);REQUIRE(o.kind!=Evidence::Location);
         if(std::string(item.second)=="gps_as_of_millisecond_scale")REQUIRE(source==1800000000000.0);
         else if(std::string(item.second)=="gps_as_of_out_of_range")REQUIRE(source==0);
@@ -66,13 +68,13 @@ TEST(gps_wire_diagnostic_preserves_only_bounded_numeric_text) {
         auto result=parse_vehicle(body(std::string("\"latitude\":0,\"longitude\":0,\"gps_as_of\":")+wire),
                                   config().vin,true,o,nullptr,&parsed,text,sizeof text);
         REQUIRE(std::string(text)==wire);
-        if(wire[0]=='-') {REQUIRE(result==Error::Malformed);REQUIRE(o.kind==Evidence::Unknown);REQUIRE(parsed<0);}
+        if(wire[0]=='-') {REQUIRE(result==Error::SourceTime);REQUIRE(o.kind==Evidence::Unknown);REQUIRE(parsed<0);}
         else {REQUIRE(result==Error::None);REQUIRE(o.source_s==epoch);}
     }
     for(const auto& wire:{std::string("null"),std::string("\"private upstream text\""),std::string(80,'9')}) {
         Observation o;char text[64]="old value";
         REQUIRE(parse_vehicle(body("\"latitude\":0,\"longitude\":0,\"gps_as_of\":"+wire),
-                              config().vin,true,o,nullptr,nullptr,text,sizeof text)==Error::Malformed);
+                              config().vin,true,o,nullptr,nullptr,text,sizeof text)==Error::SourceTime);
         REQUIRE(text[0]==0);
     }
     Json j;char small[3]="xx";REQUIRE(j.parse("123"));
@@ -83,7 +85,7 @@ TEST(report_metadata_never_substitutes_for_gps_source_time) {
     Observation o;VehicleMetadata m;
     auto wire=body("\"latitude\":0,\"longitude\":0,\"gps_as_of\":-123456789,\"timestamp\":1800000000123");
     auto at=wire.find("\"state\"");wire.insert(at,"\"api_version\":83,");
-    REQUIRE(parse_vehicle(wire,config().vin,true,o,nullptr,nullptr,nullptr,0,&m)==Error::Malformed);
+    REQUIRE(parse_vehicle(wire,config().vin,true,o,nullptr,nullptr,nullptr,0,&m)==Error::SourceTime);
     REQUIRE(std::string(m.report_timestamp_text)=="1800000000123");REQUIRE(m.api_version==83);
     REQUIRE(o.kind==Evidence::Unknown);
     o.generation=1;o.request=1;Policy p;p.configure(config(),1,0);p.observe(o,30000,epoch,true);
@@ -120,6 +122,7 @@ TEST(tokens_expiry_scopes_and_redacted_error_categories) {
     REQUIRE(http_error(503)==Error::Server);REQUIRE(http_error(408)==Error::Timeout);
     REQUIRE(http_error(302)==Error::Redirect);REQUIRE(http_error(405)==Error::Unavailable);
     REQUIRE(std::string(error_name(Error::Authentication))=="authentication");
+    REQUIRE(std::string(error_name(Error::SourceTime))=="gps_source_time_unusable");
 }
 TEST(chunked_decoded_body_and_oversize_guard) {
     BodyBuffer buffer;REQUIRE(buffer.append("{\"response\":",12));REQUIRE(buffer.append("null}",5));

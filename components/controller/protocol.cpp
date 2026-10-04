@@ -6,7 +6,8 @@ const char* error_name(Error e) {
     switch(e) {
     case Error::None:return "none"; case Error::Transport:return "transport";
     case Error::Timeout:return "timeout"; case Error::TooLarge:return "response_too_large";
-    case Error::Malformed:return "malformed_data"; case Error::Authentication:return "authentication";
+    case Error::Malformed:return "malformed_data"; case Error::SourceTime:return "gps_source_time_unusable";
+    case Error::Authentication:return "authentication";
     case Error::Permission:return "missing_permission"; case Error::RateLimit:return "rate_limit";
     case Error::Billing:return "billing"; case Error::Unavailable:return "vehicle_unavailable";
     case Error::Server:return "server"; case Error::Redirect:return "redirect_rejected";
@@ -33,9 +34,9 @@ Error parse_vehicle(std::string_view body, const char* vin, bool location, Obser
     if(gps_source_value)*gps_source_value=-1;
     if(gps_source_text && source_capacity)gps_source_text[0]=0;
     if(metadata)*metadata={};
-    auto reject=[&](const char* reason) {
+    auto reject=[&](const char* reason,Error error=Error::Malformed) {
         if(detail)*detail=reason;
-        return Error::Malformed;
+        return error;
     };
     Json j;
     if(!j.parse(body)) return reject("invalid_json");
@@ -64,17 +65,17 @@ Error parse_vehicle(std::string_view body, const char* vin, bool location, Obser
        std::abs(o.lat)>90 || std::abs(o.lon)>180)return reject("coordinates_missing_or_invalid");
     if(metadata)metadata->coordinates_valid=true;
     int source=j.get(d,"gps_as_of");
-    if(source<0)return reject("gps_as_of_missing");
-    if(j.is(source,Json::Type::Null))return reject("gps_as_of_null");
+    if(source<0)return reject("gps_as_of_missing",Error::SourceTime);
+    if(j.is(source,Json::Type::Null))return reject("gps_as_of_null",Error::SourceTime);
     j.number_text(source,gps_source_text,source_capacity);
     double seconds=0;
-    if(!j.number(source,seconds))return reject("gps_as_of_not_numeric");
+    if(!j.number(source,seconds))return reject("gps_as_of_not_numeric",Error::SourceTime);
     if(gps_source_value)*gps_source_value=seconds;
     if(seconds>=1577836800000.0 && seconds<=4102444800000.0)
-        return reject("gps_as_of_millisecond_scale");
+        return reject("gps_as_of_millisecond_scale",Error::SourceTime);
     if(seconds<1577836800.0 || seconds>4102444800.0)
-        return reject("gps_as_of_out_of_range");
-    if(std::floor(seconds)!=seconds)return reject("gps_as_of_fractional_seconds");
+        return reject("gps_as_of_out_of_range",Error::SourceTime);
+    if(std::floor(seconds)!=seconds)return reject("gps_as_of_fractional_seconds",Error::SourceTime);
     // JSON numbers need not use digit-only notation. These bounded whole seconds
     // are exactly representable; never guess units or round a fractional fix up.
     if(!j.integer(source,o.source_s)) {

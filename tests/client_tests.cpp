@@ -66,7 +66,7 @@ TEST(client_reports_failed_endpoint_status_and_fixed_parser_detail) {
     Fixture f;
     const std::string missing="{\"response\":{\"vin\":\"5YJ3E1EA7KF000001\",\"drive_state\":{\"latitude\":0,\"longitude\":0}}}";
     f.io.replies={{Endpoint::Refresh,200,token},{Endpoint::Status,200,online},{Endpoint::Location,200,missing}};
-    auto o=fix(epoch);REQUIRE(f.client.poll(config(),1,o)==Error::Malformed);
+    auto o=fix(epoch);REQUIRE(f.client.poll(config(),1,o)==Error::SourceTime);
     REQUIRE(o.vehicle==Vehicle::Online);REQUIRE(o.kind==Evidence::Unknown);
     auto d=f.client.diagnostics();REQUIRE(std::string(d.endpoint)=="location");
     REQUIRE(d.http_status==200);REQUIRE(std::string(d.detail)=="gps_as_of_missing");
@@ -79,7 +79,7 @@ TEST(negative_gps_source_never_authorizes_even_with_online_status) {
     Fixture f;
     const std::string invalid="{\"response\":{\"vin\":\"5YJ3E1EA7KF000001\",\"drive_state\":{\"latitude\":0,\"longitude\":0,\"gps_as_of\":-123456789}}}";
     f.io.replies={{Endpoint::Refresh,200,token},{Endpoint::Status,200,online},{Endpoint::Location,200,invalid}};
-    auto o=fix(epoch);REQUIRE(f.client.poll(config(),1,o)==Error::Malformed);
+    auto o=fix(epoch);REQUIRE(f.client.poll(config(),1,o)==Error::SourceTime);
     REQUIRE(o.vehicle==Vehicle::Online);REQUIRE(o.kind==Evidence::Unknown);
     REQUIRE(f.client.diagnostics().gps_source_value==-123456789);
     REQUIRE(std::string(f.client.diagnostics().detail)=="gps_as_of_out_of_range");
@@ -91,7 +91,7 @@ TEST(support_metadata_survives_invalid_gps_and_resets_for_next_response) {
     const std::string invalid=R"({"response":{"vin":"5YJ3E1EA7KF000001","api_version":83,"drive_state":{"latitude":0,"longitude":0,"gps_as_of":-123456789,"timestamp":1800000000000}}})";
     f.io.replies={{Endpoint::Refresh,200,token},{Endpoint::Status,200,online},
         {Endpoint::Location,200,invalid,Error::None,"synthetic-id","Wed, 23 Sep 2026 12:00:00 GMT",epoch}};
-    auto o=fix(epoch);REQUIRE(f.client.poll(config(),1,o)==Error::Malformed);
+    auto o=fix(epoch);REQUIRE(f.client.poll(config(),1,o)==Error::SourceTime);
     auto d=f.client.diagnostics();REQUIRE(std::string(d.transaction_id)=="synthetic-id");
     REQUIRE(std::string(d.response_date)=="Wed, 23 Sep 2026 12:00:00 GMT");
     REQUIRE(d.received_utc_s==epoch);REQUIRE(d.vehicle_metadata.api_version==83);
@@ -108,7 +108,7 @@ TEST(reported_position_distance_is_independent_of_invalid_source_time) {
     Fixture f;
     const std::string invalid=R"({"response":{"vin":"5YJ3E1EA7KF000001","drive_state":{"latitude":0.001,"longitude":0,"gps_as_of":-123456789}}})";
     f.io.replies={{Endpoint::Refresh,200,token},{Endpoint::Status,200,online},{Endpoint::Location,200,invalid}};
-    auto o=fix(epoch);REQUIRE(f.client.poll(config(),1,o)==Error::Malformed);
+    auto o=fix(epoch);REQUIRE(f.client.poll(config(),1,o)==Error::SourceTime);
     auto d=f.client.diagnostics();REQUIRE(d.reported_distance_m>111);REQUIRE(d.reported_distance_m<112);
     REQUIRE(o.kind==Evidence::Unknown);
     Policy p;p.configure(config(),1,0);p.observe(o,30000,epoch,true);
