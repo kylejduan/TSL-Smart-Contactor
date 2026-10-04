@@ -80,6 +80,29 @@ const fs = require('node:fs/promises');
       await page.locator('#confirm-off').click(); await waitText('mode', 'DISABLED');
       assert.equal((await read()).state.override_s, 0);
     });
+    await run('stale commands carry their snapshot generation and OFF stays available', async () => {
+      await reset({ generation: 40, commissioned: true });
+      // A USB OFF occurred after this browser's last status snapshot.
+      await fixture({ state: { generation: 41, mode: 'DISABLED' }, status_delay: 0.5 });
+      await page.locator('#refresh').click();
+      await page.locator('#auto').click();
+      // A newer status arrives while confirmation is open. Keep the marker
+      // from when the user started the action, not the replacement snapshot.
+      await page.waitForFunction(() => !document.getElementById('refresh').disabled);
+      await fixture({ status_delay: 0 });
+      await page.locator('#confirm-accept').click();
+      await waitText('message', 'changed after this snapshot');
+      let observed = await read();
+      assert.equal(observed.commands.at(-1).generation, 40);
+      assert.equal(observed.state.mode, 'DISABLED');
+      assert.equal(observed.commands.filter(c => c.action === 'auto').length, 1);
+      await page.locator('#off').click(); await waitText('message', 'DISABLED saved');
+      await page.waitForFunction(() => !document.getElementById('auto').disabled);
+      observed = await read(); assert.equal(observed.state.generation, 42);
+      await page.locator('#auto').click(); await page.locator('#confirm-accept').click();
+      await waitText('mode', 'AUTO');
+      observed = await read(); assert.equal(observed.commands.at(-1).generation, 42);
+    });
     await run('late status cannot overwrite an OFF result', async () => {
       await reset({ mode: 'AUTO', commissioned: true, auto_home: true, lease_s: 900, gpio_command: 'ON commanded', reason: 'auto_home_lease' });
       await fixture({ status_delay: 1 }); await page.locator('#refresh').click();

@@ -35,6 +35,14 @@ class IndependentGpsCheckTests(unittest.TestCase):
         self.assertEqual(result["decoded_gps_as_of"], -123456789)
         self.assertEqual(result["drive_state_timestamp"], 1800000000123)
 
+    def test_overflowed_gps_or_report_time_cannot_be_recorded_as_valid(self):
+        for field in (b'"gps_as_of":1e9999', b'"gps_as_of":-1e9999',
+                      b'"gps_as_of":1790000000,"timestamp":1e9999'):
+            raw = (b'{"response":{"vin":"' + VIN.encode() + b'","drive_state":{'
+                   b'"latitude":1,"longitude":2,' + field + b'}}}')
+            with self.subTest(field=field), self.assertRaisesRegex(SetupError, "Non-finite"):
+                check.inspect_location(raw, VIN)
+
     def test_wrong_identity_duplicate_or_missing_source_is_rejected(self):
         response = {"response": {"vin": VIN, "drive_state": {
             "latitude": 1, "longitude": 2, "gps_as_of": 1790000000}}}

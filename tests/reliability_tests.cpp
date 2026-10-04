@@ -44,6 +44,44 @@ TEST(lost_refresh_response_recovery_is_bounded_and_corruption_explicit) {
     Memory other;TokenJournal timeout(other);timeout.provision("old");timeout.begin(epoch);timeout.release();
     REQUIRE(timeout.begin(epoch+86400)==Error::Reauthorize);
 }
+TEST(unsent_refresh_preserves_prior_rotation_attempts_and_original_ceiling) {
+    Memory store;TokenJournal j(store);REQUIRE(j.provision("old")==Error::None);
+    REQUIRE(j.begin(epoch)==Error::None);j.release(); // Earlier request may have rotated.
+    for(int i=0;i<5;++i) {
+        TokenJournal reconnect(store);REQUIRE(reconnect.load()==Error::None);
+        REQUIRE(reconnect.begin(epoch+60+i*60)==Error::None);
+        REQUIRE(reconnect.cancel_unsent()==Error::None);
+    }
+    TokenJournal retry(store);REQUIRE(retry.load()==Error::None);
+    REQUIRE(retry.begin(epoch+600)==Error::None);retry.release();
+    REQUIRE(retry.begin(epoch+660)==Error::None);retry.release();
+    REQUIRE(retry.begin(epoch+720)==Error::Reauthorize); // Still only three sent attempts.
+
+    Memory other;TokenJournal original(other);REQUIRE(original.provision("old")==Error::None);
+    REQUIRE(original.begin(epoch)==Error::None);original.release();
+    REQUIRE(original.begin(epoch+86300)==Error::None);
+    REQUIRE(original.cancel_unsent()==Error::None);
+    TokenJournal deadline(other);REQUIRE(deadline.load()==Error::None);
+    REQUIRE(deadline.begin(epoch+86400)==Error::Reauthorize);
+}
+TEST(power_loss_or_storage_failure_during_unsent_restore_stays_conservative) {
+    Memory store;TokenJournal j(store);REQUIRE(j.provision("old")==Error::None);
+    REQUIRE(j.begin(epoch)==Error::None);
+    store.fail=true;REQUIRE(j.cancel_unsent()==Error::Storage);store.fail=false;
+    TokenJournal before_commit(store);REQUIRE(before_commit.load()==Error::None);
+    REQUIRE(before_commit.begin(epoch+60)==Error::None);before_commit.release();
+    REQUIRE(before_commit.begin(epoch+120)==Error::None);before_commit.release();
+    REQUIRE(before_commit.begin(epoch+180)==Error::Reauthorize);
+
+    Memory other;TokenJournal after_commit(other);REQUIRE(after_commit.provision("old")==Error::None);
+    REQUIRE(after_commit.begin(epoch)==Error::None);
+    other.commit_then_fail=true;REQUIRE(after_commit.cancel_unsent()==Error::Storage);
+    other.commit_then_fail=false;
+    TokenJournal restored(other);REQUIRE(restored.load()==Error::None);
+    // A durable restore removes only a proven-unsent intent, so there is no old ceiling.
+    REQUIRE(restored.begin(epoch+86400)==Error::None);
+    REQUIRE(std::string(restored.current())=="old");
+}
 TEST(budget_is_conservative_across_reboot_and_commit_failures) {
     Memory store;Budget b(store);REQUIRE(b.load()==Error::None);
     REQUIRE(b.take(Endpoint::Status,100,20,5,10)==Error::None);

@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[2] / 'main'
 SETTINGS = dict(vin='5YJ3E1EA7KF000001', home_lat=0, home_lon=0, region='NA', enable_m=100,
     disable_m=200, max_age_s=120, future_s=30, lease_s=900, sleep_s=86400, poll_s=600,
     dwell_s=30, daily_cap=400, monthly_cap=12000, dry_run=True)
-BASE = dict(mode='DISABLED', commissioned=False, dry_run=True, auto_home=False, desired_on=False,
+BASE = dict(generation=1, mode='DISABLED', commissioned=False, dry_run=True, auto_home=False, desired_on=False,
     gpio_command='OFF commanded', reason='uncommissioned', lease_s=0, override_s=0, vehicle='online',
     location_age_s=-1, distance_m=-1, reported_distance_m=2.3, last_success_uptime_s=0, next_poll_s=-1,
     wifi_connected=True, rssi_dbm=-48, uptime_s=600, utc_ready=True, error='gps_source_time_unusable',
@@ -42,6 +42,7 @@ class Fixture:
         self.history = copy.deepcopy(HISTORY)
         self.auth = False
         self.requests = []
+        self.commands = []
         self.status_delay = 0
         self.action_delay = 0
         self.events_fail = False
@@ -72,7 +73,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send((ROOT/name).read_bytes(), content_type=kind)
         with FIXTURE.lock:
             if self.path == '/__test':
-                return self.send(dict(state=FIXTURE.state, requests=FIXTURE.requests, login_type=FIXTURE.login_type))
+                return self.send(dict(state=FIXTURE.state, requests=FIXTURE.requests, commands=FIXTURE.commands, login_type=FIXTURE.login_type))
             if self.path == '/api/login-info':
                 return self.send(dict(version=2, salt=SALT.hex(), iterations=100000))
             FIXTURE.requests.append(self.path)
@@ -102,9 +103,14 @@ class Handler(BaseHTTPRequestHandler):
                 FIXTURE.auth=True
                 return self.send(dict(ok=True))
             action=body.get('action');FIXTURE.requests.append(action)
+            FIXTURE.commands.append(body)
             if not FIXTURE.auth or self.headers.get('X-CSRF-Token')!='synthetic-csrf':
                 return self.send(dict(error='authentication_or_csrf'),403)
             s=FIXTURE.state
+            if action not in ('off', 'logout') and body.get('generation') != s['generation']:
+                return self.send(dict(error='stale_command'),409)
+            if action in ('off', 'auto', 'settings'):
+                s['generation'] += 1
             if action=='logout':FIXTURE.auth=False
             elif action=='off':s.update(mode='DISABLED',gpio_command='OFF commanded',auto_home=False,lease_s=0,override_s=0,reason='user_disabled')
             elif s['fault']:return self.send(dict(error='usb_recovery_required'),409)

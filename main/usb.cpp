@@ -73,8 +73,8 @@ bool password(const Json& j,Profile& current) {
     bool ok=j.string(j.get(0,"password"),pw,sizeof pw) && verify_password(current,pw);
     mbedtls_platform_zeroize(pw,sizeof pw);return ok;
 }
-bool stop_network() {
-    provisioning=true;auto epoch=inhibit();
+bool stop_network(uint32_t& epoch,uint32_t expected=0) {
+    if(!begin_provision(expected,epoch))return false;
     // A failed/restarted provisioning attempt must not revive prior AUTO settings.
     Profile previous;
     auto existing=load_profile(previous);mbedtls_platform_zeroize(&previous,sizeof previous);
@@ -86,7 +86,8 @@ bool stop_network() {
 bool provision(const Json& j) {
     if(!j.equal(j.get(0,"confirmation"),"REPLACE_CONFIG_USB_ONLY_MAINS_DISCONNECTED"))return false;
     provision_stage="stopping_network";
-    if(!stop_network())return false;
+    uint32_t epoch=0;
+    if(!stop_network(epoch))return false;
     static Profile next;
     next=Profile{};
     int p=j.get(0,"profile"),c=j.get(p,"config");
@@ -109,18 +110,7 @@ bool provision(const Json& j) {
     mbedtls_platform_zeroize(material,sizeof material);
     provision_stage="profile_validation";
     ok=ok && valid_profile(next);
-    if(ok) {
-        uint8_t pending=1;
-        provision_stage="pending_commit";
-        ok=storage().write("provisioning",&pending,sizeof pending);
-        TokenJournal journal(storage());
-        if(ok) {provision_stage="token_commit";ok=journal.provision(refresh)==Error::None;}
-        if(ok) {provision_stage="profile_commit";ok=save_profile(next);}
-        pending=0;
-        if(ok) {provision_stage="completion_commit";ok=storage().write("provisioning",&pending,sizeof pending);}
-        mbedtls_platform_zeroize(&journal,sizeof journal);
-        if(!ok)fail("provision_write");
-    }
+    if(ok)ok=provision_profile(next,refresh,provision_stage);
     mbedtls_platform_zeroize(pw,sizeof pw);mbedtls_platform_zeroize(refresh,sizeof refresh);
     mbedtls_platform_zeroize(&next,sizeof next);
     if(ok)provision_stage="complete";
@@ -133,13 +123,13 @@ void process(const char* input) {
     if(!j.parse(input)) {send("{\"ok\":false,\"error\":\"invalid_json\"}");return;}
     int op=j.get(0,"op");
     if(j.equal(op,"hello")) {
-        send("{\"protocol\":1,\"board\":\"ESP32-S3-Relay-1CH\",\"firmware\":\"0.1.0\",\"secrets_echoed\":false}");return;
+        send("{\"protocol\":2,\"board\":\"ESP32-S3-Relay-1CH\",\"firmware\":\"0.1.0\",\"secrets_echoed\":false}");return;
     }
     if(j.equal(op,"diagnostics")) {diagnostics();return;}
     if(j.equal(op,"status")) {
         auto s=snapshot();char b[256]={};
-        std::snprintf(b,sizeof b,"{\"ready\":%s,\"commissioned\":%s,\"disabled\":%s,\"dry_run\":%s,\"commanded_on\":%s,\"fault\":%s}",
-            s.ready?"true":"false",s.config.commissioned?"true":"false",s.config.disabled?"true":"false",
+        std::snprintf(b,sizeof b,"{\"generation\":%lu,\"ready\":%s,\"commissioned\":%s,\"disabled\":%s,\"dry_run\":%s,\"commanded_on\":%s,\"fault\":%s}",
+            (unsigned long)s.generation,s.ready?"true":"false",s.config.commissioned?"true":"false",s.config.disabled?"true":"false",
             s.config.dry_run?"true":"false",s.decision.commanded?"true":"false",critical_fault?"true":"false");
         send(b);return;
     }
@@ -157,6 +147,17 @@ void process(const char* input) {
         mbedtls_platform_zeroize(&current,sizeof current);
         send("{\"ok\":false,\"error\":\"authentication_required\"}");vTaskDelay(pdMS_TO_TICKS(2000));return;
     }
+    uint32_t expected=0;
+    if(j.equal(op,"auto") || j.equal(op,"timed_on") || j.equal(op,"arm") ||
+       j.equal(op,"enable_output") || j.equal(op,"wifi_update")) {
+        int64_t supplied=0;
+        if(!j.integer(j.get(0,"generation"),supplied) || supplied<=0 || supplied>UINT32_MAX ||
+           uint32_t(supplied)!=snapshot().generation) {
+            mbedtls_platform_zeroize(&current,sizeof current);
+            send("{\"ok\":false,\"error\":\"stale_command\"}");return;
+        }
+        expected=uint32_t(supplied);
+    }
     bool ok=false;
     if(j.equal(op,"off")) {
         auto epoch=inhibit();current.config.disabled=true;ok=change_config(Change::Disabled,epoch);
@@ -166,7 +167,8 @@ void process(const char* input) {
         bool valid=j.string(j.get(0,"wifi_ssid"),ssid,sizeof ssid) &&
             j.string(j.get(0,"wifi_password"),wifi_password,sizeof wifi_password) &&
             std::strlen(ssid)>0 && std::strlen(wifi_password)>=8 && std::strlen(wifi_password)<=63;
-        if(valid && stop_network())ok=update_wifi(ssid,wifi_password,snapshot().generation);
+        uint32_t epoch=0;
+        if(valid && stop_network(epoch,expected))ok=update_wifi(ssid,wifi_password,epoch);
         mbedtls_platform_zeroize(ssid,sizeof ssid);
         mbedtls_platform_zeroize(wifi_password,sizeof wifi_password);
         if(ok) {
@@ -176,19 +178,20 @@ void process(const char* input) {
         }
     } else if(j.equal(op,"arm") && !critical_fault && !provisioning &&
               j.equal(j.get(0,"confirmation"),"USB_BENCH_POLARITY_AND_STARTUP_VERIFIED")) {
-        auto epoch=inhibit();current.config.commissioned=true;current.config.disabled=true;
+        uint32_t epoch=0;
         // Arming does not energize and does not leave dry-run by itself.
-        ok=change_config(Change::Arm,epoch);
+        ok=inhibit_current(expected,epoch) && change_config(Change::Arm,epoch);
     } else if(j.equal(op,"enable_output") && !critical_fault && !provisioning && current.config.commissioned &&
               j.equal(j.get(0,"confirmation"),"ALLOW_PHYSICAL_RELAY_AFTER_BENCH_CHECK")) {
-        auto epoch=inhibit();current.config.dry_run=false;current.config.disabled=true;
-        ok=change_config(Change::EnableOutput,epoch);
+        uint32_t epoch=0;
+        ok=inhibit_current(expected,epoch) && change_config(Change::EnableOutput,epoch);
     } else if(j.equal(op,"auto") && !critical_fault && !provisioning) {
-        auto epoch=inhibit();current.config.disabled=false;ok=change_config(Change::Auto,epoch);check_requested=true;
+        uint32_t epoch=0;ok=inhibit_current(expected,epoch) && change_config(Change::Auto,epoch);
+        if(ok)check_requested=true;
     } else if(j.equal(op,"timed_on") && !critical_fault && !provisioning) {
         int64_t seconds=3600;
         if(j.get(0,"seconds")>=0 && !j.integer(j.get(0,"seconds"),seconds))seconds=0;
-        ok=seconds>0 && seconds<=28800 && timed(seconds,snapshot().generation);
+        ok=seconds>0 && seconds<=28800 && timed(seconds,expected);
     } else if(j.equal(op,"reboot")) {
         inhibit();send("{\"ok\":true,\"rebooting\":true}");
         vTaskDelay(pdMS_TO_TICKS(500));esp_restart();

@@ -26,6 +26,9 @@ public:
     Error load();
     Error provision(const char* refresh);
     Error begin(int64_t utc);
+    // Undo only the latest intent, after transport proves no request was sent.
+    // Earlier ambiguous rotations retain their attempts and original deadline.
+    Error cancel_unsent();
     Error finish(const char* replacement);
     Error revoke();
     void release() { busy_=false; }
@@ -35,6 +38,9 @@ private:
     bool save(TokenRecord& next);
     Store& store_;
     TokenRecord record_{};
+    int64_t prior_uncertain_since_=0;
+    uint32_t prior_attempts_=0;
+    uint8_t prior_pending_=0;
     bool busy_ = false, loaded_ = false;
 };
 enum class Endpoint : uint8_t { Status, Location, Refresh, Count };

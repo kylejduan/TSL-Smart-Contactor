@@ -39,8 +39,34 @@ ReadResult load_profile(Profile& p) {
 bool intact_profile(const Profile& p) {
     return (p.version==1 || p.version==2) && p.crc==crc32(&p,offsetof(Profile,crc));
 }
-bool save_profile(Profile& p) {
+static bool save_profile(Profile& p) {
     seal(p);return storage().write("profile",&p,sizeof p);
+}
+bool provision_profile(Profile& next,const char* refresh,const char*& stage) {
+    if(!config_mutex || xSemaphoreTake(config_mutex,pdMS_TO_TICKS(5000))!=pdTRUE) {
+        fail("provision_lock");return false;
+    }
+    // The USB caller has already validated keys/configuration and stopped the
+    // sole refresh owner. Retain inhibition even if a concurrent OFF advances
+    // the control generation while these durable records are being replaced.
+    bool ok=provisioning && !network_busy && snapshot().config.disabled &&
+        next.config.disabled && !next.config.commissioned && next.config.dry_run;
+    if(ok) {
+        uint8_t pending=1;
+        stage="pending_commit";
+        ok=storage().write("provisioning",&pending,sizeof pending);
+        TokenJournal journal(storage());
+        if(ok) {stage="token_commit";ok=journal.provision(refresh)==Error::None;}
+        if(ok) {stage="profile_commit";ok=save_profile(next);}
+        pending=0;
+        if(ok) {stage="completion_commit";ok=storage().write("provisioning",&pending,sizeof pending);}
+        mbedtls_platform_zeroize(&journal,sizeof journal);
+        if(!ok)fail("provision_write");
+    }
+    // A competing writer must reload the completed profile after this unlock;
+    // it cannot overwrite the new credentials with a pre-provisioning snapshot.
+    xSemaphoreGive(config_mutex);
+    return ok;
 }
 bool update_wifi(const char* ssid,const char* password,uint32_t epoch) {
     if(!config_mutex || xSemaphoreTake(config_mutex,pdMS_TO_TICKS(5000))!=pdTRUE) {

@@ -29,8 +29,18 @@ Error TokenJournal::begin(int64_t utc) {
     auto r=record_;
     if(!r.pending) {r.uncertain_since=utc;r.attempts=0;}
     r.pending=1;++r.attempts;
+    prior_uncertain_since_=record_.uncertain_since;
+    prior_attempts_=record_.attempts;prior_pending_=record_.pending;
     if(!save(r))return Error::Storage;
     busy_=true;return Error::None;
+}
+Error TokenJournal::cancel_unsent() {
+    if(!busy_)return Error::Malformed;
+    auto r=record_;
+    r.uncertain_since=prior_uncertain_since_;
+    r.attempts=prior_attempts_;r.pending=prior_pending_;
+    bool ok=save(r);busy_=false;
+    return ok ? Error::None : Error::Storage;
 }
 Error TokenJournal::finish(const char* t) {
     if(!busy_ || !t[0] || std::strlen(t)>2048)return Error::Malformed;

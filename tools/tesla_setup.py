@@ -4,6 +4,7 @@ All network calls are invoked explicitly by the CLI, never at import/test time.
 from __future__ import annotations
 import getpass
 import json
+import math
 import secrets
 import ssl
 import time
@@ -80,6 +81,10 @@ def decode_json(raw: bytes) -> Any:
                 for x in v.values(): walk(x, depth + 1)
             elif isinstance(v, list):
                 for x in v: walk(x, depth + 1)
+            elif isinstance(v, float) and not math.isfinite(v):
+                # parse_constant rejects NaN/Infinity literals, but valid JSON
+                # exponent notation can also overflow Python's float parser.
+                raise SetupError("Non-finite JSON number rejected.")
         walk(value)
         return value
     except (ValueError, RecursionError, UnicodeError) as exc:

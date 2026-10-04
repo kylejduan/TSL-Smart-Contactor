@@ -52,7 +52,7 @@ def run(root, port):
     if input("Type PROVISION to continue: ") != "PROVISION":
         raise SetupError("Canceled.")
     hello = usb_exchange(port, {"op": "hello"})
-    if hello.get("protocol") != 1 or hello.get("board") != "ESP32-S3-Relay-1CH":
+    if hello.get("protocol") != 2 or hello.get("board") != "ESP32-S3-Relay-1CH":
         raise SetupError("USB firmware protocol/board mismatch.")
     secret = hidden("Tesla application client secret (used here only): ")
     if input("Register this domain in the selected Tesla region now? [yes/no]: ") == "yes":
@@ -93,6 +93,14 @@ def run(root, port):
 
 def usb(args):
     request = {"op": args.command}
+    if args.command in {"auto", "timed_on", "arm", "enable_output", "wifi_update"}:
+        # Capture the controller generation before a potentially slow password
+        # prompt. A later OFF must invalidate this pending operation.
+        state = usb_exchange(args.port, {"op": "status"})
+        generation = state.get("generation")
+        if type(generation) is not int or not 1 <= generation <= 0xffffffff:
+            raise SetupError("USB status lacks a valid generation; update the firmware before this command.")
+        request["generation"] = generation
     if args.command not in {"hello", "status", "diagnostics", "wifi_scan"}:
         request["password"] = hidden("Local administrator password: ")
     confirmations = {
@@ -126,7 +134,23 @@ def usb(args):
         request["wifi_ssid"] = ssid
         request["wifi_password"] = wifi
     result = usb_exchange(args.port, request)
-    if args.command == "wifi_scan" and result.get("ok"):
+    # Read-only metadata replies predate the action acknowledgement envelope.
+    # Actions must positively acknowledge success; never let a rejected OFF or
+    # recovery operation appear successful to the calling shell.
+    expects_ack = args.command not in {"hello", "status", "diagnostics"}
+    if (expects_ack or "ok" in result) and result.get("ok") is not True:
+        messages = {
+            "authentication_required": "USB authentication failed; check the local administrator password.",
+            "rejected": "USB command rejected; check the controller state and required confirmation.",
+            "stale_command": "The controller changed while this command was pending. Inspect USB status and start a new command.",
+            "scan_unavailable": "USB Wi-Fi scan is unavailable in the current controller state.",
+            "invalid_json": "USB firmware rejected the request format.",
+            "request_size_or_timeout": "USB firmware rejected the request size or receive time.",
+        }
+        error = result.get("error")
+        message = messages.get(error) if isinstance(error, str) else None
+        raise SetupError(message or "USB command was not acknowledged; inspect USB status before retrying.")
+    if args.command == "wifi_scan":
         for network in result["networks"]:
             network["ssid"] = bytes.fromhex(network["ssid_hex"]).decode("utf-8", errors="backslashreplace")
     print(json.dumps(result, indent=2))

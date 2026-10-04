@@ -212,19 +212,29 @@ esp_err_t action(httpd_req_t* r) {
     if(j.equal(op,"logout")) {
         session.clear();
         httpd_resp_set_hdr(r,"Set-Cookie","__Host-id=; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=0");
-    } else if(j.equal(op,"off")) {
-        auto epoch=inhibit();s.config.disabled=true;
+        return reply(r,"{\"ok\":true}");
+    }
+    if(j.equal(op,"off")) {
+        auto epoch=inhibit();
         if(!change_config(Change::Disabled,epoch))return reply(r,"{\"error\":\"off_inhibited_persistence_failed\"}","503 Service Unavailable");
-    } else if(provisioning || critical_fault || !s.ready) {
+        return reply(r,"{\"ok\":true}");
+    }
+    if(provisioning || critical_fault || !s.ready)
         return reply(r,"{\"error\":\"usb_recovery_required\"}","409 Conflict");
-    } else if(j.equal(op,"auto")) {
-        auto epoch=inhibit();s.config.disabled=false;
+    int64_t supplied=0;
+    if(!j.integer(j.get(0,"generation"),supplied) || supplied<=0 || supplied>UINT32_MAX ||
+       uint32_t(supplied)!=s.generation)
+        return reply(r,"{\"error\":\"stale_command\"}","409 Conflict");
+    const auto expected=uint32_t(supplied);
+    if(j.equal(op,"auto")) {
+        uint32_t epoch=0;
+        if(!inhibit_current(expected,epoch))return reply(r,"{\"error\":\"stale_command\"}","409 Conflict");
         if(!change_config(Change::Auto,epoch))return reply(r,"{\"error\":\"persistence_failed\"}","503 Service Unavailable");
         check_requested=true;
     } else if(j.equal(op,"timed_on")) {
         int64_t seconds=3600;
         if(j.get(0,"seconds")>=0 && !j.integer(j.get(0,"seconds"),seconds))seconds=0;
-        if(seconds<=0 || seconds>28800 || !timed(seconds,s.generation))
+        if(seconds<=0 || seconds>28800 || !timed(seconds,expected))
             return reply(r,"{\"error\":\"timed_on_rejected\"}","409 Conflict");
     } else if(j.equal(op,"check_now")) {
         static Ms next_manual=0;
@@ -237,7 +247,8 @@ esp_err_t action(httpd_req_t* r) {
         if(!parse_config(j,j.get(0,"settings"),c))return reply(r,"{\"error\":\"invalid_settings\"}","400 Bad Request");
         // Arming and enabling physical output are USB-only. Web may enter dry-run.
         if(s.config.dry_run && !c.dry_run)return reply(r,"{\"error\":\"usb_commissioning_required\"}","409 Conflict");
-        auto epoch=inhibit();
+        uint32_t epoch=0;
+        if(!inhibit_current(expected,epoch))return reply(r,"{\"error\":\"stale_command\"}","409 Conflict");
         if(!change_config(Change::Settings,epoch,&c))return reply(r,"{\"error\":\"persistence_failed\"}","503 Service Unavailable");
     } else return reply(r,"{\"error\":\"unknown_action\"}","400 Bad Request");
     return reply(r,"{\"ok\":true}");
@@ -249,7 +260,7 @@ size_t status_json(char* out,size_t capacity) {
     auto remaining=s.polling_paused || s.config.disabled ? -1 : std::max<Ms>(0,s.next_poll-now_ms())/1000;
     long long age=d.last_source_s && s.utc_ok ? time(nullptr)-d.last_source_s : -1;
     int n=std::snprintf(out,capacity,
-        "{\"mode\":\"%s\",\"commissioned\":%s,\"dry_run\":%s,\"auto_home\":%s,"
+        "{\"generation\":%lu,\"mode\":\"%s\",\"commissioned\":%s,\"dry_run\":%s,\"auto_home\":%s,"
         "\"desired_on\":%s,\"gpio_command\":\"%s commanded\",\"reason\":\"%s\","
         "\"lease_s\":%lld,\"override_s\":%lld,\"vehicle\":\"%s\",\"location_age_s\":%lld,"
         "\"distance_m\":%.1f,\"last_success_uptime_s\":%lld,\"next_poll_s\":%lld,"
@@ -262,7 +273,7 @@ size_t status_json(char* out,size_t capacity) {
         "\"settings\":{\"vin\":\"%s\",\"home_lat\":%.7f,\"home_lon\":%.7f,\"enable_m\":%lu,\"disable_m\":%lu,"
         "\"max_age_s\":%lu,\"future_s\":%lu,\"lease_s\":%lu,\"sleep_s\":%lu,\"poll_s\":%lu,\"dwell_s\":%lu,"
         "\"daily_cap\":%lu,\"monthly_cap\":%lu,\"region\":\"%s\",\"dry_run\":%s}}",
-        s.config.disabled?"DISABLED":(d.timed?"TIMED_ON":"AUTO"),s.config.commissioned?"true":"false",s.config.dry_run?"true":"false",
+        (unsigned long)s.generation,s.config.disabled?"DISABLED":(d.timed?"TIMED_ON":"AUTO"),s.config.commissioned?"true":"false",s.config.dry_run?"true":"false",
         d.auto_home?"true":"false",d.desired?"true":"false",d.commanded?"ON":"OFF",reason_name(d.reason),
         d.lease_left/1000,d.override_left/1000,vehicle_name(s.vehicle),age,d.distance,s.last_poll/1000,remaining,
         wifi_connected?"true":"false",rssi,now_ms()/1000,s.utc_ok?"true":"false",error_name(s.error),

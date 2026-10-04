@@ -52,6 +52,13 @@ class OAuthTests(unittest.TestCase):
                      b' ' * (tesla.MAX_BODY + 1), b'broken']:
             with self.assertRaises(tesla.SetupError): tesla.decode_json(body)
 
+    def test_numeric_overflow_is_rejected_at_every_json_depth(self):
+        for body in [b'1e9999', b'-1e9999', b'{"x":1e9999}', b'[{"x":[-1e9999]}]']:
+            with self.subTest(body=body), self.assertRaisesRegex(tesla.SetupError, "Non-finite"):
+                tesla.decode_json(body)
+        self.assertEqual(tesla.decode_json(b'{"x":1.79e9,"id":9007199254740993}'),
+                         {"x": 1790000000.0, "id": 9007199254740993})
+
     def test_http_errors_redact_token_url_body_and_headers(self):
         class Opener:
             def open(self, request, timeout):
@@ -91,10 +98,102 @@ class ScanTests(unittest.TestCase):
         output = io.StringIO()
         with patch.object(onboard, "usb_exchange", return_value={"ok": False, "error": "scan_unavailable"}) as exchange, \
              patch.object(onboard, "hidden") as hidden, patch("sys.stdout", output):
-            onboard.usb(SimpleNamespace(command="wifi_scan", port="synthetic"))
+            with self.assertRaisesRegex(tesla.SetupError, "scan is unavailable"):
+                onboard.usb(SimpleNamespace(command="wifi_scan", port="synthetic"))
         self.assertEqual(exchange.call_count, 1)
         hidden.assert_not_called()
-        self.assertFalse(json.loads(output.getvalue())["ok"])
+        self.assertEqual(output.getvalue(), "")
+
+class UsbCommandTests(unittest.TestCase):
+    def test_mutating_commands_capture_generation_before_secret_prompt(self):
+        for command in ("auto", "timed_on", "arm", "enable_output", "wifi_update"):
+            args = SimpleNamespace(command=command, port="SYNTHETIC", seconds=3600)
+            responses = [{"generation": 42}, {"ok": True, "committed": True}]
+            confirmations = {"arm": "USB_BENCH_POLARITY_AND_STARTUP_VERIFIED",
+                             "enable_output": "ALLOW_PHYSICAL_RELAY_AFTER_BENCH_CHECK",
+                             "timed_on": "TIMED_ON", "wifi_update": "USB_WIFI_RECOVERY_KEEP_OUTPUT_OFF"}
+            with (self.subTest(command=command),
+                  patch.object(onboard, "usb_exchange", side_effect=responses) as exchange,
+                  patch("builtins.input", return_value=confirmations.get(command, "")),
+                  patch("sys.stdout", io.StringIO())):
+                def hidden(_):
+                    self.assertEqual(exchange.call_count, 1)
+                    return "synthetic-password"
+                with patch.object(onboard, "hidden", side_effect=hidden):
+                    onboard.usb(args)
+            self.assertEqual(exchange.call_args_list[0].args[1], {"op": "status"})
+            self.assertEqual(exchange.call_args_list[1].args[1]["generation"], 42)
+
+    def test_invalid_generation_stops_before_credentials_or_action(self):
+        for generation in (None, True, 0, -1, 4294967296, 1.0, "42"):
+            with (self.subTest(generation=generation),
+                  patch.object(onboard, "usb_exchange", return_value={"generation": generation}) as exchange,
+                  patch.object(onboard, "hidden") as hidden):
+                with self.assertRaisesRegex(tesla.SetupError, "valid generation"):
+                    onboard.usb(SimpleNamespace(command="auto", port="SYNTHETIC"))
+            exchange.assert_called_once_with("SYNTHETIC", {"op": "status"})
+            hidden.assert_not_called()
+
+    def test_provisioning_rejects_old_protocol_before_credentials_or_consent(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "setup.json").write_text("{}")
+            with (patch("builtins.input", return_value="PROVISION"),
+                  patch.object(onboard, "usb_exchange", return_value={
+                      "protocol": 1, "board": "ESP32-S3-Relay-1CH"}),
+                  patch.object(onboard, "hidden") as hidden,
+                  patch.object(onboard, "consent") as consent,
+                  patch("sys.stdout", io.StringIO())):
+                with self.assertRaisesRegex(tesla.SetupError, "protocol/board mismatch"):
+                    onboard.run(root, "SYNTHETIC")
+            hidden.assert_not_called()
+            consent.assert_not_called()
+
+    def test_rejected_or_missing_off_ack_fails_cli_without_printing_device_text(self):
+        cases = [
+            ({"ok": False, "error": "authentication_required"}, "USB authentication failed"),
+            ({"ok": False, "error": "rejected"}, "USB command rejected"),
+            ({"ok": False, "error": "synthetic-secret"}, "not acknowledged"),
+            ({"ok": "true", "error": ["synthetic-secret"]}, "not acknowledged"),
+            ({}, "not acknowledged"),
+        ]
+        for response, message in cases:
+            response = dict(response, detail="synthetic-secret")
+            with (self.subTest(response=response),
+                  patch.object(sys, "argv", ["onboard.py", "usb", "--port", "SYNTHETIC", "off"]),
+                  patch.object(onboard, "hidden", return_value="synthetic-admin-password"),
+                  patch.object(onboard, "usb_exchange", return_value=response) as exchange,
+                  patch("sys.stdout", new_callable=io.StringIO) as output,
+                  patch("sys.stderr", new_callable=io.StringIO) as errors):
+                self.assertEqual(onboard.main(), 1)
+            exchange.assert_called_once()
+            self.assertIn(message, errors.getvalue())
+            self.assertNotIn("synthetic-secret", errors.getvalue() + output.getvalue())
+            self.assertEqual(output.getvalue(), "")
+
+    def test_read_only_metadata_without_ok_remains_successful(self):
+        cases = [
+            ("hello", {"protocol": 2, "board": "ESP32-S3-Relay-1CH"}),
+            ("status", {"ready": True, "disabled": True, "commanded_on": False, "generation": 42}),
+            ("diagnostics", {"token_state": "usable", "provision_stage": "idle"}),
+        ]
+        for command, response in cases:
+            with (self.subTest(command=command),
+                  patch.object(sys, "argv", ["onboard.py", "usb", "--port", "SYNTHETIC", command]),
+                  patch.object(onboard, "hidden") as hidden,
+                  patch.object(onboard, "usb_exchange", return_value=response),
+                  patch("sys.stdout", new_callable=io.StringIO) as output):
+                self.assertEqual(onboard.main(), 0)
+            hidden.assert_not_called()
+            self.assertEqual(json.loads(output.getvalue()), response)
+
+    def test_acknowledged_off_succeeds(self):
+        with (patch.object(sys, "argv", ["onboard.py", "usb", "--port", "SYNTHETIC", "off"]),
+              patch.object(onboard, "hidden", return_value="synthetic-admin-password"),
+              patch.object(onboard, "usb_exchange", return_value={"ok": True}),
+              patch("sys.stdout", new_callable=io.StringIO) as output):
+            self.assertEqual(onboard.main(), 0)
+        self.assertTrue(json.loads(output.getvalue())["ok"])
 
 class WifiRecoveryTests(unittest.TestCase):
     def test_usb_recovery_uses_hidden_prompts_and_preserves_other_secrets(self):
@@ -102,10 +201,10 @@ class WifiRecoveryTests(unittest.TestCase):
         args = SimpleNamespace(command="wifi_update", port="SYNTHETIC_PORT")
         with patch.object(onboard, "hidden", side_effect=["synthetic-admin-password", "synthetic-ssid", "synthetic-wifi-password"]), \
              patch("builtins.input", return_value="USB_WIFI_RECOVERY_KEEP_OUTPUT_OFF"), \
-             patch.object(onboard, "usb_exchange", return_value={"ok": True, "committed": True}) as exchange, \
+             patch.object(onboard, "usb_exchange", side_effect=[{"generation": 42}, {"ok": True, "committed": True}]) as exchange, \
              patch("sys.stdout", output):
             onboard.usb(args)
-        exchange.assert_called_once()
+        self.assertEqual(exchange.call_count, 2)
         request = exchange.call_args.args[1]
         self.assertEqual(request["op"], "wifi_update")
         self.assertEqual(request["wifi_ssid"], "synthetic-ssid")
@@ -119,11 +218,11 @@ class WifiRecoveryTests(unittest.TestCase):
         args = SimpleNamespace(command="wifi_update", port="SYNTHETIC_PORT")
         with patch.object(onboard, "hidden", side_effect=["synthetic-admin-password", "synthetic-ssid", "short"]), \
              patch("builtins.input", return_value="USB_WIFI_RECOVERY_KEEP_OUTPUT_OFF"), \
-             patch.object(onboard, "usb_exchange") as exchange, \
+             patch.object(onboard, "usb_exchange", return_value={"generation": 42}) as exchange, \
              patch("sys.stdout", io.StringIO()):
             with self.assertRaises(tesla.SetupError):
                 onboard.usb(args)
-        exchange.assert_not_called()
+        exchange.assert_called_once_with("SYNTHETIC_PORT", {"op": "status"})
 
 class FilesTests(unittest.TestCase):
     def test_generated_public_tree_contains_no_private_keys(self):

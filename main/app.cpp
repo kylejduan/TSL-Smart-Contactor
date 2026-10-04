@@ -1,11 +1,13 @@
 #include "runtime.hpp"
 #include "storage.hpp"
 #include "board.hpp"
+#include "control_epoch.hpp"
 #include "esp_timer.h"
 #include "esp_task_wdt.h"
 #include "esp_heap_caps.h"
 #include "esp_psram.h"
 #include "esp_system.h"
+#include "esp_random.h"
 #include "freertos/queue.h"
 #include <cstring>
 #include <ctime>
@@ -22,6 +24,7 @@ void fail(const char* reason) {
 }
 static portMUX_TYPE lock=portMUX_INITIALIZER_UNLOCKED;
 static Snapshot state;
+static ControlEpoch control_epoch;
 static bool forced_off=false,pending_config=false,pending_timed=false;
 static Config new_config;
 static uint32_t config_epoch=0,timed_epoch=0,timed_seconds=0;
@@ -30,18 +33,36 @@ static uint8_t obs_queue_buffer[8*sizeof(Observation)];
 static QueueHandle_t obs_queue=nullptr;
 Ms now_ms() {return esp_timer_get_time()/1000;}
 Snapshot snapshot() {
-    portENTER_CRITICAL(&lock);auto copy=state;portEXIT_CRITICAL(&lock);return copy;
+    portENTER_CRITICAL(&lock);auto copy=state;copy.generation=control_epoch.current();
+    portEXIT_CRITICAL(&lock);return copy;
+}
+static void inhibit_locked() {
+    state.inhibited=true;forced_off=true;state.config.disabled=true;
+    pending_config=false;pending_timed=false;
 }
 uint32_t inhibit() {
     portENTER_CRITICAL(&lock);
-    state.inhibited=true;forced_off=true;state.config.disabled=true;
-    ++state.generation;pending_config=false;pending_timed=false;
-    auto epoch=state.generation;
+    auto epoch=control_epoch.cancel();inhibit_locked();
     portEXIT_CRITICAL(&lock);return epoch;
+}
+bool inhibit_current(uint32_t expected,uint32_t& acquired) {
+    portENTER_CRITICAL(&lock);
+    bool ok=!provisioning && control_epoch.begin(expected,acquired);
+    if(ok)inhibit_locked();
+    portEXIT_CRITICAL(&lock);return ok;
+}
+bool begin_provision(uint32_t expected,uint32_t& acquired) {
+    portENTER_CRITICAL(&lock);
+    bool ok=expected ? control_epoch.begin(expected,acquired) : true;
+    if(ok) {
+        if(!expected)acquired=control_epoch.cancel();
+        inhibit_locked();provisioning=true;
+    }
+    portEXIT_CRITICAL(&lock);return ok;
 }
 bool configure(const Config& c,uint32_t epoch) {
     portENTER_CRITICAL(&lock);
-    bool ok=epoch==state.generation;
+    bool ok=control_epoch.matches(epoch);
     if(ok) {
         if(!c.disabled || std::strncmp(c.vin,state.config.vin,sizeof c.vin) ||
            c.home_lat!=state.config.home_lat || c.home_lon!=state.config.home_lon) {
@@ -55,7 +76,7 @@ bool configure(const Config& c,uint32_t epoch) {
 bool timed(uint32_t seconds,uint32_t epoch) {
     portENTER_CRITICAL(&lock);
     bool ok=state.ready && !state.inhibited && !state.config.disabled && state.config.commissioned &&
-        epoch==state.generation && seconds>0 && seconds<=28800;
+        control_epoch.matches(epoch) && seconds>0 && seconds<=28800;
     if(ok) {timed_seconds=seconds;timed_epoch=epoch;pending_timed=true;}
     portEXIT_CRITICAL(&lock);return ok;
 }
@@ -67,12 +88,12 @@ void network_status(uint32_t generation,Vehicle v,Error e,Ms last,Ms next,const 
     portENTER_CRITICAL(&lock);
     // Request reservations are global accounting, even while the user has OFF
     // selected. Vehicle evidence and its diagnostics belong to one generation.
-    if(state.generation==generation)state.budget=b;
+    if(control_epoch.matches(generation))state.budget=b;
     // A persisted revoked-token state must remain visible after a DISABLED boot,
     // even though no vehicle request or location diagnostic is published there.
-    if(state.generation==generation && state.config.disabled && e==Error::Reauthorize)
+    if(control_epoch.matches(generation) && state.config.disabled && e==Error::Reauthorize)
         state.error=e;
-    if(state.generation==generation && !state.inhibited && !state.config.disabled) {
+    if(control_epoch.matches(generation) && !state.inhibited && !state.config.disabled) {
         state.vehicle=v;state.error=e;state.last_poll=last;state.next_poll=next;
         state.polling_paused=paused;state.fleet=diagnostic;
     }
@@ -83,6 +104,7 @@ static void allocation_failed(size_t size,uint32_t,const char*) {
 }
 static void setup(void*) {
     static Profile profile;
+    const auto startup_generation=snapshot().generation;
     if(!storage().initialize())fail("storage_init");
     auto r=load_profile(profile);
     if(r==ReadResult::Failed)fail("profile_load");
@@ -90,10 +112,13 @@ static void setup(void*) {
     // headroom beyond their buffers; the USB diagnostics expose the watermark.
     if(xTaskCreate(usb_task,"usb_provision",32768,nullptr,2,nullptr)!=pdPASS)fail("setup_or_usb_task");
     if(r==ReadResult::Ok && valid_profile(profile) && !critical_fault) {
-        configure(profile.config,snapshot().generation);
-        start_wifi(profile);
-        if(!start_management(profile))fail("https_start");
-        start_tesla(profile);
+        // USB OFF may have superseded this profile while it was being validated.
+        configure(profile.config,startup_generation);
+        if(!provisioning) {
+            start_wifi(profile);
+            if(!start_management(profile))fail("https_start");
+            start_tesla(profile);
+        }
     } else if(r==ReadResult::Ok)fail("profile_validation");
     vTaskDelete(nullptr);
 }
@@ -102,6 +127,9 @@ extern "C" void app_main() {
     using namespace app;
     // app_main remains the ONE control task and the only owner of this GPIO.
     if(!board::initialize_off())fail("gpio_init");
+    // Do not reuse a predictable generation from a previous boot's client page.
+    // This is a command-order marker, separate from authentication/session keys.
+    control_epoch=ControlEpoch(esp_random());
     if(!esp_psram_is_initialized() || esp_psram_get_size()<8*1024*1024)fail("psram_init");
     vTaskPrioritySet(nullptr,10);
     if(heap_caps_register_failed_alloc_callback(allocation_failed)!=ESP_OK)fail("allocation_monitor");
@@ -119,7 +147,7 @@ extern "C" void app_main() {
         last_tick=now;
         bool off,apply,override;Config c;uint32_t epoch,seconds,te;
         portENTER_CRITICAL(&lock);
-        off=forced_off;forced_off=false;epoch=state.generation;
+        off=forced_off;forced_off=false;epoch=control_epoch.current();
         apply=pending_config && config_epoch==epoch;c=new_config;pending_config=false;
         override=pending_timed;seconds=timed_seconds;te=timed_epoch;pending_timed=false;
         if(apply) {state.config=c;state.ready=true;state.inhibited=false;}
@@ -138,7 +166,7 @@ extern "C" void app_main() {
             policy.observe(o,now,time(nullptr),evidence_time_ok);
         Decision d=policy.tick(now);
         portENTER_CRITICAL(&lock);
-        if(state.inhibited || state.generation!=policy.generation() || critical_fault || provisioning)d.commanded=false;
+        if(state.inhibited || !control_epoch.matches(policy.generation()) || critical_fault || provisioning)d.commanded=false;
         if(!board::command(d.commanded)) {fail("gpio_command");board::command(false);d.commanded=false;}
         state.decision=d;state.utc_ok=evidence_time_ok;
         if(d.reason!=last_reason || d.commanded!=last_command) {

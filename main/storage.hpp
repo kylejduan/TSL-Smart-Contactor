@@ -14,7 +14,9 @@ private:
 };
 NvsStore& storage();
 ReadResult load_profile(Profile&);
-bool save_profile(Profile&);
+// Caller validates the profile, stops the runtime refresh owner and wipes inputs.
+// Serialize all provisioning records with OFF/settings/password profile writers.
+bool provision_profile(Profile& next,const char* refresh,const char*& stage);
 bool update_wifi(const char* ssid,const char* password,uint32_t epoch);
 bool valid_profile(const Profile&);
 bool intact_profile(const Profile&);

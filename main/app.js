@@ -24,6 +24,7 @@
     usb_commissioning_required: 'Physical-output enablement is available only through the USB bench procedure.',
     usb_recovery_required: 'A local fault or provisioning state requires USB recovery.',
     invalid_settings: 'Settings were rejected. Check the field limits and radius/lease relationships.',
+    stale_command: 'The controller changed after this snapshot. Refresh, review the current mode, then try again.',
     persistence_failed: 'Settings could not be saved. Output is inhibited; inspect USB diagnostics.',
     off_inhibited_persistence_failed: 'OFF was requested, but saving DISABLED failed. Inspect USB diagnostics.',
     malformed_data: 'Tesla returned unusable data. Existing authorization will not be renewed.',
@@ -265,7 +266,7 @@
     const myEpoch = ++epoch; ++refreshId; pending = true; updateButtons();
     message(name === 'off' ? 'Sending OFF…' : 'Saving request…');
     try {
-      await call('/api/action', { action: name, ...extra });
+      await call('/api/action', { action: name, generation: state.generation, ...extra });
       if (myEpoch !== epoch) return;
       message(name === 'off' ? 'OFF accepted and DISABLED saved.' : name === 'check_now' ? 'Check requested through the shared scheduler. Refresh to see its result.' : 'Request accepted.');
       await new Promise(resolve => setTimeout(resolve, 150));
@@ -297,13 +298,13 @@
   $('off').onclick = () => action('off');
   $('confirm-off').onclick = () => action('off');
   $('auto').onclick = async () => {
-    const at = epoch;
-    if (await confirmAction('Select AUTO?', 'This permits Tesla API requests and automatic authorization when all commissioning and presence checks pass. Fleet API charges may apply.', 'Select AUTO') && at === epoch) action('auto');
+    const at = epoch, generation = state.generation;
+    if (await confirmAction('Select AUTO?', 'This permits Tesla API requests and automatic authorization when all commissioning and presence checks pass. Fleet API charges may apply.', 'Select AUTO') && at === epoch) action('auto', { generation });
   };
   $('timed-form').onsubmit = async e => {
     e.preventDefault(); if (!$('timed-form').reportValidity()) return;
-    const seconds = Math.round(Number($('hours').value) * 3600), at = epoch;
-    if (await confirmAction('Bypass Tesla presence?', 'Request ON for ' + duration(seconds) + ', even if the vehicle is away or unreachable. OFF or reboot cancels the override. Commissioning and minimum OFF dwell still apply.', 'Start timed ON') && at === epoch) action('timed_on', { seconds });
+    const seconds = Math.round(Number($('hours').value) * 3600), at = epoch, generation = state.generation;
+    if (await confirmAction('Bypass Tesla presence?', 'Request ON for ' + duration(seconds) + ', even if the vehicle is away or unreachable. OFF or reboot cancels the override. Commissioning and minimum OFF dwell still apply.', 'Start timed ON') && at === epoch) action('timed_on', { seconds, generation });
   };
   $('check').onclick = () => action('check_now');
   $('settings-form').oninput = () => { dirty = true; $('settings-dirty').hidden = false; for (const [key] of fields) $('setting-' + key).setCustomValidity(''); };
@@ -319,8 +320,8 @@
     }
     settings.region = region.value; settings.dry_run = $('setting-dry_run').checked;
     if (state.dry_run && !settings.dry_run) { message(errors.usb_commissioning_required, true); return; }
-    const at = epoch;
-    if (await confirmAction('Save settings?', 'This discards prior AUTO evidence and cancels any timed override. Your current mode is retained. New evidence is required before automatic authorization resumes.', 'Save settings') && at === epoch) action('settings', { settings }, true);
+    const at = epoch, generation = state.generation;
+    if (await confirmAction('Save settings?', 'This discards prior AUTO evidence and cancels any timed override. Your current mode is retained. New evidence is required before automatic authorization resumes.', 'Save settings') && at === epoch) action('settings', { settings, generation }, true);
   };
   $('export').onclick = () => {
     if (!state) return;

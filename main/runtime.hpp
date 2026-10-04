@@ -37,6 +37,8 @@ void fail(const char* static_reason);
 Ms now_ms();
 Snapshot snapshot();
 uint32_t inhibit(); // Immediate OFF + invalidates in-flight and queued requests
+bool inhibit_current(uint32_t expected,uint32_t& acquired); // Reject stale non-OFF commands
+bool begin_provision(uint32_t expected,uint32_t& acquired); // 0 only for full USB replacement
 bool configure(const Config&,uint32_t epoch);
 bool timed(uint32_t seconds,uint32_t epoch);
 bool submit(const Observation&);

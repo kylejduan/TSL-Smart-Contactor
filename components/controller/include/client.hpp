@@ -17,6 +17,9 @@ struct HttpResult {
     Error error=Error::None;
     int status=0;
     uint32_t retry_s=0;
+    // Only a transport that proves no HTTP request write was attempted may
+    // clear this. Unknown transports retain rotation uncertainty by default.
+    bool request_may_have_been_sent=true;
     char transaction_id[129]={},response_date[30]={};
     int64_t received_utc_s=0;
     BodyBuffer body;

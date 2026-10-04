@@ -36,12 +36,21 @@ Error FleetClient::refresh(const Config& cfg) {
     if(e!=Error::None)return e;
     char token[6145]={},id[385]={},form[6656]={};
     if(!url_encode(journal_.current(),token,sizeof token) || !url_encode(id_,id,sizeof id)) {
-        journal_.release();return Error::Malformed;
+        auto restored=journal_.cancel_unsent();
+        wipe(token,sizeof token);wipe(form,sizeof form);
+        return restored==Error::None ? Error::Malformed : restored;
     }
     std::snprintf(form,sizeof form,"grant_type=refresh_token&client_id=%s&refresh_token=%s",id,token);
     HttpResult result;request(Endpoint::Refresh,cfg,nullptr,form,result);
     diagnose("refresh",result);
     retry_=std::max(retry_,result.retry_s);wipe(form,sizeof form);wipe(token,sizeof token);
+    if(!result.request_may_have_been_sent) {
+        // DNS/TLS/connect failures cannot rotate a token when no HTTP write was
+        // attempted. Preserve any uncertainty that predates this failed attempt.
+        e=journal_.cancel_unsent();
+        if(e==Error::None)e=result.error==Error::None ? Error::Malformed : result.error;
+        wipe(&result,sizeof result);return e;
+    }
     e=result.error;Tokens tokens;
     if(e==Error::None) {
         e=parse_tokens(result.body.view(),tokens);

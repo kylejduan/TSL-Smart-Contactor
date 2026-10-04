@@ -71,6 +71,7 @@ void start_wifi(const Profile& p) {
     if(xTaskCreate(reconnect_task,"wifi_retry",3072,nullptr,2,nullptr)!=pdPASS)fail("network_init_or_allocation");
 }
 void request(Endpoint endpoint,const Config& cfg,const char* access,const char* form,HttpResult& r) {
+    r.request_may_have_been_sent=false;
     if(!snapshot().utc_ok) {r.error=Error::Clock;return;}
     if(!wifi_connected) {r.error=Error::Wifi;return;}
     const char* host=endpoint==Endpoint::Refresh ? "fleet-auth.prd.vn.cloud.tesla.com" :
@@ -101,6 +102,8 @@ void request(Endpoint endpoint,const Config& cfg,const char* access,const char* 
         size_t sent=0;Ms progress=now_ms();
         while(sent<length) {
             if(now_ms()>=deadline || now_ms()-progress>=5000) {r.error=Error::Timeout;return false;}
+            // Set before the call: even a failed/partial write remains ambiguous.
+            r.request_may_have_been_sent=true;
             int result=esp_tls_conn_write(tls,p+sent,length-sent);
             if(result>0) {sent+=result;progress=now_ms();}
             else if(result!=ESP_TLS_ERR_SSL_WANT_READ && result!=ESP_TLS_ERR_SSL_WANT_WRITE) {
