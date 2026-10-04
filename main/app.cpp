@@ -10,7 +10,7 @@
 #include <cstring>
 #include <ctime>
 namespace app {
-std::atomic<bool> critical_fault{false},wifi_connected{false},utc_synced{false},provisioning{false},network_busy{false};
+std::atomic<bool> critical_fault{false},wifi_connected{false},utc_synced{false},utc_continuity{false},provisioning{false},network_busy{false};
 std::atomic<bool> check_requested{false};
 std::atomic<const char*> fault_source{nullptr};
 std::atomic<uint32_t> failed_allocation_bytes{0},control_max_gap_ms{0};
@@ -111,17 +111,20 @@ extern "C" void app_main() {
         if(off)policy.off(epoch,now);
         if(apply)policy.configure(c,epoch,now);
         if(override && te==epoch)policy.timed_on(seconds,now);
-        bool time_ok=clock.update(now,time(nullptr),utc_synced);
+        // Keep an existing monotonic lease through a brief Wi-Fi outage, but
+        // require a new SNTP sync before admitting another location fix.
+        bool time_ok=clock.update(now,time(nullptr),utc_continuity);
+        bool evidence_time_ok=time_ok && utc_synced && wifi_connected;
         if(clock.jumped())policy.clock_discontinuity(now);
         if(critical_fault)policy.fault(now);
         Observation o;
         for(int i=0;i<8 && xQueueReceive(obs_queue,&o,0)==pdTRUE;++i)
-            policy.observe(o,now,time(nullptr),time_ok);
+            policy.observe(o,now,time(nullptr),evidence_time_ok);
         Decision d=policy.tick(now);
         portENTER_CRITICAL(&lock);
         if(state.inhibited || state.generation!=policy.generation() || critical_fault || provisioning)d.commanded=false;
         if(!board::command(d.commanded)) {fail("gpio_command");board::command(false);d.commanded=false;}
-        state.decision=d;state.utc_ok=time_ok;
+        state.decision=d;state.utc_ok=evidence_time_ok;
         if(d.reason!=last_reason || d.commanded!=last_command) {
             state.events.record(now,d.reason,d.commanded);
             last_reason=d.reason;last_command=d.commanded;

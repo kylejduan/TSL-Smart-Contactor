@@ -14,9 +14,13 @@
 namespace app {
 static_assert(CONFIG_LWIP_DNS_MAX_SERVERS>=2,
     "IDF reserves the last DNS slot; DHCP needs a separate usable slot");
-static void sync_callback(timeval*) {utc_synced=true;}
+static void sync_callback(timeval*) {
+    utc_continuity=true;
+    utc_synced=wifi_connected.load();
+}
 static void wifi_event(void*,esp_event_base_t base,int32_t id,void* data) {
     if(base==IP_EVENT && id==IP_EVENT_STA_GOT_IP) {
+        utc_synced=false;
         wifi_connected=true;
         wifi_connect_error=0;
         // DNS and routing are available now. Also discard any old SNTP backoff
@@ -24,6 +28,7 @@ static void wifi_event(void*,esp_event_base_t base,int32_t id,void* data) {
         if(esp_netif_sntp_start()!=ESP_OK)fail("sntp_start");
     }
     if(base==WIFI_EVENT && id==WIFI_EVENT_STA_DISCONNECTED) {
+        utc_synced=false;
         wifi_connected=false;
         if(data)wifi_disconnect_reason=static_cast<wifi_event_sta_disconnected_t*>(data)->reason;
     }

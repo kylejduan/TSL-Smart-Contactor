@@ -28,7 +28,7 @@ struct Snapshot {
     FleetDiagnostics fleet{};
     EventLog events{};
 };
-extern std::atomic<bool> critical_fault, wifi_connected, utc_synced, provisioning, network_busy;
+extern std::atomic<bool> critical_fault, wifi_connected, utc_synced, utc_continuity, provisioning, network_busy;
 extern std::atomic<bool> check_requested;
 extern std::atomic<const char*> fault_source;
 extern std::atomic<uint32_t> failed_allocation_bytes, control_max_gap_ms;
