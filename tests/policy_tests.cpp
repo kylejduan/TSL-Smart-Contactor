@@ -38,6 +38,20 @@ TEST(stale_duplicate_future_and_out_of_order_never_renew) {
     p.observe(fix((epoch+600)*1000,5),600000,epoch+600,true);
     REQUIRE(!p.tick(900000).commanded);
 }
+TEST(reconnect_waits_for_utc_without_restarting_or_extending_a_lease) {
+    Policy p;p.configure(config(),1,0);p.observe(fix(epoch),0,epoch,true);
+    REQUIRE(p.tick(30000).commanded);
+    // The link can be unavailable while the already-granted monotonic lease runs.
+    p.observe(fix(epoch+600,2),600000,epoch+600,false);
+    REQUIRE(p.tick(899999).commanded);
+    REQUIRE(!p.tick(900000).auto_home);
+    p.observe(fix(epoch+901,3),901000,epoch+901,false);
+    REQUIRE(!p.tick(901000).auto_home);
+    p.observe(fix(epoch+902,4),902000,epoch+902,true);
+    REQUIRE(p.tick(902000).auto_home);
+    REQUIRE(!p.tick(929999).commanded);
+    REQUIRE(p.tick(930000).commanded);
+}
 TEST(source_age_is_subtracted_and_future_has_no_bonus) {
     Policy p;p.configure(config(),1,0);p.observe(fix(epoch-120),0,epoch,true);
     REQUIRE(p.tick(0).lease_left==780000);REQUIRE(!p.tick(780000).auto_home);
