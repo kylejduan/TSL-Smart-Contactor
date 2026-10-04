@@ -23,11 +23,17 @@ const std::string token="{\"access_token\":\"synthetic-access\",\"refresh_token\
 const std::string asleep="{\"response\":{\"vin\":\"5YJ3E1EA7KF000001\",\"state\":\"asleep\"}}";
 const std::string online="{\"response\":{\"vin\":\"5YJ3E1EA7KF000001\",\"state\":\"online\"}}";
 const std::string location="{\"response\":{\"vin\":\"5YJ3E1EA7KF000001\",\"drive_state\":{\"latitude\":0,\"longitude\":0,\"gps_as_of\":1800000000}}}";
+std::string report_location(const std::string& timestamp,double longitude=0) {
+    return "{\"response\":{\"vin\":\"5YJ3E1EA7KF000001\",\"drive_state\":{\"latitude\":0,\"longitude\":"+
+        std::to_string(longitude)+",\"gps_as_of\":-123456789"+
+        (timestamp.empty() ? "" : ",\"timestamp\":"+timestamp)+"}}}";
+}
 struct IO : FleetIO {
     Ms elapsed=0;uint32_t generation=1;bool time_ready=true;
+    int64_t utc_base=epoch;
     std::deque<Reply> replies;std::vector<Endpoint> requests;std::function<void(Endpoint)> hook;
     Ms now() const override {return elapsed;}
-    int64_t utc() const override {return epoch+elapsed/1000;}
+    int64_t utc() const override {return utc_base+elapsed/1000;}
     bool ready() const override {return time_ready;}
     bool current(uint32_t g) const override {return g==generation;}
     void request(Endpoint e,const Config&,const char* access,const char* form,HttpResult& r) override {
@@ -62,6 +68,114 @@ TEST(client_401_exactly_one_refresh_and_one_retry) {
 TEST(client_fetches_location_only_after_online) {
     Fixture f;f.io.replies={{Endpoint::Refresh,200,token},{Endpoint::Status,200,online},{Endpoint::Location,200,location}};
     auto o=fix(epoch);REQUIRE(f.client.poll(config(),1,o)==Error::None);REQUIRE(o.kind==Evidence::Location);
+}
+TEST(report_mode_client_parser_policy_authorize_then_reject_duplicate_and_departure) {
+    Fixture f;auto c=config();c.position_basis=uint8_t(PositionBasis::VehicleReport);
+    Policy p;p.configure(c,1,0);
+    f.io.replies={{Endpoint::Refresh,200,token},{Endpoint::Status,200,online},
+                  {Endpoint::Location,200,report_location("1800000000123")}};
+    auto o=fix(epoch);REQUIRE(f.client.poll(c,1,o)==Error::None);
+    REQUIRE(o.position_basis==PositionBasis::VehicleReport);REQUIRE(o.source_s==epoch);
+    REQUIRE(f.client.diagnostics().gps_source_value==-123456789);
+    p.observe(o,0,epoch,true);REQUIRE(!p.tick(29999).commanded);REQUIRE(p.tick(30000).commanded);
+    f.io.elapsed=600000;f.io.replies={{Endpoint::Status,200,online},
+        {Endpoint::Location,200,report_location("1800000600123")}};
+    o=fix(epoch+600,2);REQUIRE(f.client.poll(c,1,o)==Error::None);p.observe(o,600000,epoch+600,true);
+    REQUIRE(p.tick(600000).commanded);REQUIRE(p.tick(600000).lease_left==900000);
+    f.io.elapsed=601000;f.io.replies={{Endpoint::Status,200,online},
+        {Endpoint::Location,200,report_location("1800000600123")}};
+    o=fix(epoch+601,3);REQUIRE(f.client.poll(c,1,o)==Error::None);p.observe(o,601000,epoch+601,true);
+    REQUIRE(p.tick(601000).lease_left==899000);
+    f.io.elapsed=602000;f.io.replies={{Endpoint::Status,200,online},
+        {Endpoint::Location,200,report_location("1800000602000",0.002)}};
+    o=fix(epoch+602,4);REQUIRE(f.client.poll(c,1,o)==Error::None);p.observe(o,602000,epoch+602,true);
+    REQUIRE(!p.tick(602000).auto_home);REQUIRE(!p.tick(602000).commanded);
+}
+TEST(recorded_timestamp_pair_in_synthetic_envelope_obeys_selected_basis_and_age) {
+    // Only these numeric timestamps come from the independent 2026-10-04
+    // capture. Envelope, VIN, coordinates, status and credentials are synthetic;
+    // this is not a replay of the complete original/private HTTP response.
+    constexpr int64_t completion_utc=1800000000;
+    const std::string recorded_numbers=R"({"response":{"vin":"5YJ3E1EA7KF000001","drive_state":{"latitude":0,"longitude":0,"gps_as_of":-123456789,"timestamp":1800000000643}}})";
+    Fixture strict;strict.io.utc_base=completion_utc;
+    strict.io.replies={{Endpoint::Refresh,200,token},{Endpoint::Status,200,online},
+                       {Endpoint::Location,200,recorded_numbers,Error::None,"","",completion_utc}};
+    auto strict_observation=fix(completion_utc);
+    REQUIRE(strict.client.poll(config(),1,strict_observation)==Error::SourceTime);
+    Policy strict_policy;strict_policy.configure(config(),1,0);
+    strict_policy.observe(strict_observation,0,completion_utc,true);
+    REQUIRE(!strict_policy.tick(30000).auto_home);
+    REQUIRE(!strict_policy.tick(30000).commanded);
+    REQUIRE(strict.client.diagnostics().gps_source_value==-123456789);
+
+    Fixture report;report.io.utc_base=completion_utc;
+    auto c=config();c.position_basis=uint8_t(PositionBasis::VehicleReport);
+    report.io.replies={{Endpoint::Refresh,200,token},{Endpoint::Status,200,online},
+                       {Endpoint::Location,200,recorded_numbers,Error::None,"","",completion_utc}};
+    auto observation=fix(completion_utc);
+    REQUIRE(report.client.poll(c,1,observation)==Error::None);
+    REQUIRE(observation.source_s==completion_utc);
+    REQUIRE(observation.position_basis==PositionBasis::VehicleReport);
+    Policy report_policy;report_policy.configure(c,1,0);
+    report_policy.observe(observation,0,completion_utc,true);
+    REQUIRE(report_policy.tick(0).lease_left==900000);
+    REQUIRE(report_policy.tick(30000).auto_home);REQUIRE(report_policy.tick(30000).commanded);
+
+    report.io.elapsed=121000;
+    report.io.replies={{Endpoint::Status,200,online},
+        {Endpoint::Location,200,recorded_numbers,Error::None,"","",completion_utc+121}};
+    observation=fix(completion_utc+121,2);
+    REQUIRE(report.client.poll(c,1,observation)==Error::None);
+    REQUIRE(observation.source_s==completion_utc); // Later receipt cannot refresh it.
+    Policy fresh_policy;fresh_policy.configure(c,1,121000);
+    fresh_policy.observe(observation,121000,report.io.utc(),true);
+    REQUIRE(!fresh_policy.tick(151000).auto_home);REQUIRE(!fresh_policy.tick(151000).commanded);
+    report_policy.observe(observation,121000,report.io.utc(),true);
+    REQUIRE(report_policy.tick(121000).lease_left==779000);
+    REQUIRE(!report_policy.tick(900000).auto_home);
+}
+TEST(report_mode_errors_and_nonfresh_reports_do_not_renew_existing_permission) {
+    for(const char* timestamp:{"", "null", "1800000600", "1800000600000.5", "1800000479000",
+                              "1800000631000", "1800000000000", "1799999999000"}) {
+        Fixture f;auto c=config();c.position_basis=uint8_t(PositionBasis::VehicleReport);
+        Policy p;p.configure(c,1,0);
+        f.io.replies={{Endpoint::Refresh,200,token},{Endpoint::Status,200,online},
+                      {Endpoint::Location,200,report_location("1800000000000")}};
+        auto o=fix(epoch);REQUIRE(f.client.poll(c,1,o)==Error::None);p.observe(o,0,epoch,true);
+        REQUIRE(p.tick(30000).commanded);
+        f.io.elapsed=600000;f.io.replies={{Endpoint::Status,200,online},
+                                       {Endpoint::Location,200,report_location(timestamp)}};
+        o=fix(epoch+600,2);auto result=f.client.poll(c,1,o);
+        REQUIRE(result==Error::None || result==Error::ReportTime);
+        if(result==Error::None)p.observe(o,600000,epoch+600,true);
+        REQUIRE(p.tick(899999).commanded);REQUIRE(!p.tick(900000).auto_home);
+    }
+}
+TEST(report_mode_never_polls_location_without_online_or_accepts_conflicting_state) {
+    auto c=config();c.position_basis=uint8_t(PositionBasis::VehicleReport);
+    for(const char* state:{"asleep","offline","unknown"}) {
+        const std::string status="{\"response\":{\"vin\":\"5YJ3E1EA7KF000001\",\"state\":\""+std::string(state)+"\"}}";
+        Fixture f;f.io.replies={{Endpoint::Refresh,200,token},{Endpoint::Status,200,status}};
+        auto o=fix(epoch);REQUIRE(f.client.poll(c,1,o)==Error::None);REQUIRE(f.io.requests.size()==2);
+        Policy p;p.configure(c,1,0);p.observe(o,30000,epoch,true);REQUIRE(!p.tick(30000).auto_home);
+        Fixture g;auto wire=report_location("1800000000000");
+        wire.insert(wire.find("\"drive_state\""),"\"state\":\""+std::string(state)+"\",");
+        g.io.replies={{Endpoint::Refresh,200,token},{Endpoint::Status,200,online},{Endpoint::Location,200,wire}};
+        o=fix(epoch);REQUIRE(g.client.poll(c,1,o)==Error::Unavailable);REQUIRE(o.kind==Evidence::Unknown);
+    }
+}
+TEST(report_mode_sleep_renews_only_prior_report_and_preserves_its_timestamp) {
+    Fixture f;auto c=config();c.position_basis=uint8_t(PositionBasis::VehicleReport);
+    Policy p;p.configure(c,1,0);
+    f.io.replies={{Endpoint::Refresh,200,token},{Endpoint::Status,200,online},
+                  {Endpoint::Location,200,report_location("1800000000000")}};
+    auto o=fix(epoch);REQUIRE(f.client.poll(c,1,o)==Error::None);p.observe(o,0,epoch,true);
+    f.io.elapsed=600000;f.io.replies={{Endpoint::Status,200,asleep}};
+    o=fix(epoch+600,2);REQUIRE(f.client.poll(c,1,o)==Error::None);
+    REQUIRE(o.position_basis==PositionBasis::VehicleReport);REQUIRE(o.kind==Evidence::Asleep);
+    p.observe(o,600000,epoch+600,true);
+    REQUIRE(p.tick(600000).last_source_s==epoch);REQUIRE(p.tick(1499999).auto_home);
+    REQUIRE(!p.tick(1500000).auto_home);
 }
 TEST(client_reports_failed_endpoint_status_and_fixed_parser_detail) {
     Fixture f;

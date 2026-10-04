@@ -137,6 +137,80 @@ TEST(configuration_validation) {
     c=config();c.lease_s=901;REQUIRE(!valid_config(c));c=config();c.monthly_cap=0;REQUIRE(!valid_config(c));
     c=config();c.vin[17]='X';REQUIRE(!valid_config(c));
 }
+TEST(configuration_basis_is_explicit_and_old_records_migrate_strict) {
+    const std::string fields="\"vin\":\"5YJ3E1EA7KF000001\",\"home_lat\":0,\"home_lon\":0";
+    for(uint8_t padding:{uint8_t(0),uint8_t(1),uint8_t(255)}) {
+        auto c=config();c.version=1;c.position_basis=padding;
+        const auto wire="{"+fields+"}";
+        Json j;REQUIRE(j.parse(wire));REQUIRE(parse_config(j,0,c));
+        REQUIRE(c.version==2);REQUIRE(c.position_basis==0);REQUIRE(valid_config(c));
+    }
+    auto c=config();Json j;
+    auto wire="{"+fields+",\"position_basis\":\"vehicle_report\"}";
+    REQUIRE(j.parse(wire));REQUIRE(parse_config(j,0,c));
+    REQUIRE(effective_position_basis(c)==PositionBasis::VehicleReport);
+    wire="{"+fields+"}";REQUIRE(j.parse(wire));REQUIRE(parse_config(j,0,c));
+    REQUIRE(effective_position_basis(c)==PositionBasis::VehicleReport);
+    wire="{"+fields+",\"position_basis\":\"gps_source\"}";
+    REQUIRE(j.parse(wire));REQUIRE(parse_config(j,0,c));
+    REQUIRE(effective_position_basis(c)==PositionBasis::GpsSource);
+    for(const char* bad:{"null","1","\"report\"","\"receipt_time\""}) {
+        wire="{"+fields+",\"position_basis\":"+bad+"}";
+        REQUIRE(j.parse(wire));REQUIRE(!parse_config(j,0,c));
+    }
+    REQUIRE(std::string(position_basis_name(PositionBasis::GpsSource))=="gps_source");
+    REQUIRE(std::string(position_basis_name(PositionBasis::VehicleReport))=="vehicle_report");
+    REQUIRE(std::string(error_name(Error::ReportTime))=="vehicle_report_time_unusable");
+}
+TEST(report_basis_preserves_invalid_gps_diagnostics_and_floors_whole_milliseconds) {
+    for(const char* numeric:{"1800000000123","1800000000123.0","1.800000000123e12","180000000012300e-2"}) {
+        Observation o;o.vehicle=Vehicle::Online;
+        double gps=0;char text[64]={};VehicleMetadata m;const char* detail=nullptr;
+        auto wire=body(std::string("\"latitude\":0,\"longitude\":0,\"gps_as_of\":-123456789,\"timestamp\":")+numeric);
+        REQUIRE(parse_vehicle(wire,config().vin,true,o,&detail,&gps,text,sizeof text,&m,
+                              PositionBasis::VehicleReport)==Error::None);
+        REQUIRE(o.kind==Evidence::Location);REQUIRE(o.source_s==epoch);
+        REQUIRE(o.position_basis==PositionBasis::VehicleReport);REQUIRE(o.vehicle==Vehicle::Online);
+        REQUIRE(gps==-123456789);REQUIRE(std::string(text)=="-123456789");
+        REQUIRE(std::string(m.report_timestamp_text)==numeric);
+        REQUIRE(std::string(detail)=="vehicle_report_timestamp");
+    }
+    for(const char* gps:{"null","\"private upstream text\"","1800000000000"}) {
+        Observation o;o.vehicle=Vehicle::Online;
+        REQUIRE(parse_vehicle(body(std::string("\"latitude\":0,\"longitude\":0,\"gps_as_of\":")+gps+
+                    ",\"timestamp\":1800000000123"),config().vin,true,o,nullptr,nullptr,nullptr,0,nullptr,
+                    PositionBasis::VehicleReport)==Error::None);
+    }
+}
+TEST(report_basis_rejects_missing_malformed_units_and_fractional_milliseconds) {
+    for(const char* timestamp:{"null","\"1800000000000\"","1800000000","1800000000000000","-1",
+                              "1800000000000.5","1800000000000.0001","1.8000000000000001e12","1e999"}) {
+        Observation o;o.vehicle=Vehicle::Online;
+        REQUIRE(parse_vehicle(body(std::string("\"latitude\":0,\"longitude\":0,\"gps_as_of\":1800000000,\"timestamp\":")+timestamp),
+                    config().vin,true,o,nullptr,nullptr,nullptr,0,nullptr,PositionBasis::VehicleReport)==Error::ReportTime);
+        REQUIRE(o.kind==Evidence::Unknown);
+    }
+    Observation o;o.vehicle=Vehicle::Online;
+    REQUIRE(parse_vehicle(body("\"latitude\":0,\"longitude\":0,\"gps_as_of\":1800000000"),
+                config().vin,true,o,nullptr,nullptr,nullptr,0,nullptr,PositionBasis::VehicleReport)==Error::ReportTime);
+    REQUIRE(o.kind==Evidence::Unknown);
+}
+TEST(report_parser_requires_online_preflight_and_rejects_contradicting_state) {
+    const auto valid=body("\"latitude\":0,\"longitude\":0,\"timestamp\":1800000000000");
+    Observation o;
+    REQUIRE(parse_vehicle(valid,config().vin,true,o,nullptr,nullptr,nullptr,0,nullptr,
+                          PositionBasis::VehicleReport)==Error::Unavailable);
+    for(const char* state:{"asleep","offline","unknown"}) {
+        auto wire=valid;wire.replace(wire.find("online"),6,state);o=Observation{};o.vehicle=Vehicle::Online;
+        REQUIRE(parse_vehicle(wire,config().vin,true,o,nullptr,nullptr,nullptr,0,nullptr,
+                              PositionBasis::VehicleReport)==Error::Unavailable);
+        REQUIRE(o.kind==Evidence::Unknown);
+    }
+    auto missing=valid;missing.erase(missing.find("\"state\""),17);o=Observation{};o.vehicle=Vehicle::Online;
+    REQUIRE(parse_vehicle(missing,config().vin,true,o,nullptr,nullptr,nullptr,0,nullptr,
+                          PositionBasis::VehicleReport)==Error::None);
+    REQUIRE(o.vehicle==Vehicle::Online);
+}
 
 #include "http_decoder.hpp"
 TEST(http_support_metadata_is_bounded_unambiguous_and_json_safe) {

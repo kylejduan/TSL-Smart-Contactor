@@ -92,7 +92,8 @@ Error FleetClient::get(Endpoint endpoint,const Config& cfg,Observation& o) {
         if(result.error!=Error::None)return result.error;
         auto parsed=parse_vehicle(result.body.view(),cfg.vin,endpoint==Endpoint::Location,o,
                              &diagnostic_.detail,&diagnostic_.gps_source_value,
-                             diagnostic_.gps_source_text,sizeof diagnostic_.gps_source_text,&diagnostic_.vehicle_metadata);
+                             diagnostic_.gps_source_text,sizeof diagnostic_.gps_source_text,&diagnostic_.vehicle_metadata,
+                             effective_position_basis(cfg));
         if(diagnostic_.vehicle_metadata.coordinates_valid)
             diagnostic_.reported_distance_m=distance_m(cfg.home_lat,cfg.home_lon,o.lat,o.lon);
         return parsed;

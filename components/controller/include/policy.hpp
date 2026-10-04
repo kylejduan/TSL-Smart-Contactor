@@ -1,10 +1,12 @@
 #pragma once
+#include <cstddef>
 #include <cstdint>
 
 namespace tsl {
 using Ms = int64_t;
+enum class PositionBasis : uint8_t { GpsSource=0, VehicleReport=1 };
 struct Config {
-    uint32_t version = 1;
+    uint32_t version = 2;
     char vin[18] = {};
     double home_lat = 0, home_lon = 0;
     uint32_t enable_m = 100, disable_m = 200;
@@ -13,7 +15,12 @@ struct Config {
     uint32_t daily_cap = 400, monthly_cap = 12000;
     bool commissioned = false, disabled = true, dry_run = true;
     uint8_t region = 0; // 0 NA, 1 EU; no arbitrary URL
+    uint8_t position_basis = 0; // v1 stored padding here; never interpret it as opt-in.
 };
+static_assert(sizeof(Config)==88 && offsetof(Config,region)==83 &&
+              offsetof(Config,position_basis)==84,"Preserve the stored Config layout");
+PositionBasis effective_position_basis(const Config&);
+const char* position_basis_name(PositionBasis);
 bool valid_config(const Config& c);
 bool valid_vin(const char* vin);
 double distance_m(double lat1, double lon1, double lat2, double lon2);
@@ -27,7 +34,8 @@ struct Observation {
     Evidence kind = Evidence::Unknown;
     Vehicle vehicle = Vehicle::Unknown;
     double lat = 0, lon = 0;
-    int64_t source_s = 0;
+    int64_t source_s = 0; // Timestamp of the selected basis; report time is not GPS age.
+    PositionBasis position_basis = PositionBasis::GpsSource;
     bool quality_ok = true;
 };
 enum class Reason : uint8_t {

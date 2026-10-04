@@ -29,6 +29,7 @@
     off_inhibited_persistence_failed: 'OFF was requested, but saving DISABLED failed. Inspect USB diagnostics.',
     malformed_data: 'Tesla returned unusable data. Existing authorization will not be renewed.',
     gps_source_time_unusable: 'Tesla location has no usable GPS acquisition time. AUTO cannot renew from this position.',
+    vehicle_report_time_unusable: 'Tesla location has no usable vehicle report time. AUTO cannot renew from this report.',
     reauthorization_required: 'Tesla consent must be renewed through the USB onboarding helper.',
     missing_permission: 'Tesla read-only permissions are missing. Review consent through the helper.',
     billing: 'Tesla rejected billing. Review the developer account before requesting another check.',
@@ -41,7 +42,7 @@
     ['home_lon', 'Home longitude', 'number', 'location', -180, 180, 'Decimal degrees.'],
     ['enable_m', 'Enable radius · metres', 'number', 'policy', 10, 9999, 'Must be smaller than the disable radius.'],
     ['disable_m', 'Disable radius · metres', 'number', 'policy', 11, 10000, 'Outside this boundary, valid AWAY evidence clears AUTO.'],
-    ['max_age_s', 'Maximum GPS age · seconds', 'number', 'policy', 1, 120, 'Age of the source fix, not the HTTP response.'],
+    ['max_age_s', 'Maximum GPS source age · seconds', 'number', 'policy', 1, 120, 'Age of the source fix, not the HTTP response.'],
     ['future_s', 'Future tolerance · seconds', 'number', 'policy', 0, 30, 'A tolerated future timestamp adds no lease time.'],
     ['lease_s', 'Authorization lease · seconds', 'number', 'policy', 60, 900, 'Failures and duplicate fixes do not renew it.'],
     ['sleep_s', 'Sleeping-home ceiling · seconds', 'number', 'policy', 60, 86400, 'At least the lease; measured from the last qualifying source fix.'],
@@ -71,14 +72,14 @@
   }
   for (const [key, label, type, group, min, max, hint] of fields) {
     const row = document.createElement('label');
-    row.textContent = label;
+    const title = document.createElement('span'); title.id = 'setting-' + key + '-label'; title.textContent = label;
     const input = document.createElement('input');
     input.id = 'setting-' + key; input.name = key; input.type = type; input.required = true;
     if (type === 'number') {
       input.min = min; input.max = max; input.step = key.startsWith('home_') ? 'any' : '1';
     } else { input.minLength = 17; input.maxLength = 17; input.pattern = '[A-HJ-NPR-Z0-9]{17}'; }
-    const note = document.createElement('small'); note.className = 'field-hint'; note.textContent = hint;
-    row.append(input, note); $(group + '-settings').append(row);
+    const note = document.createElement('small'); note.id = 'setting-' + key + '-hint'; note.className = 'field-hint'; note.textContent = hint;
+    row.append(title, input, note); $(group + '-settings').append(row);
   }
   const regionLabel = document.createElement('label'); regionLabel.textContent = 'Tesla region';
   const region = document.createElement('select'); region.id = 'setting-region';
@@ -86,6 +87,13 @@
     const option = document.createElement('option'); option.value = value; option.textContent = label; region.append(option);
   }
   regionLabel.append(region); $('location-settings').append(regionLabel);
+  function settingsBasisHelp() {
+    const reportBased = $('setting-position_basis').value === 'vehicle_report';
+    $('setting-max_age_s-label').textContent = reportBased ? 'Maximum vehicle report age · seconds' : 'Maximum GPS source age · seconds';
+    $('setting-max_age_s-hint').textContent = reportBased ? 'Age of the vehicle report. Coordinates can be older than the report.' : 'Age of the source fix, not the HTTP response.';
+    $('setting-sleep_s-hint').textContent = reportBased ? 'At least the lease; measured from the last qualifying vehicle report.' : 'At least the lease; measured from the last qualifying source fix.';
+    $('basis-setting-help').textContent = reportBased ? 'Latest reported position accepts vehicle report time for freshness and lease deadlines. A recent report can contain older coordinates and does not prove GPS acquisition age.' : 'GPS source time is required. Invalid or missing GPS acquisition time cannot establish or renew AUTO.';
+  }
   function message(text, error = false) {
     $('message').hidden = !text; $('message').textContent = text;
     $('message').className = error ? 'notice error' : 'notice';
@@ -103,6 +111,7 @@
     $('controls').hidden = true; $('login').hidden = false; $('password').value = '';
     $('connection').textContent = 'Signed out';
     $('settings-form').reset();
+    settingsBasisHelp();
     for (const [key] of fields) $('setting-' + key).value = '';
     for (const id of ['status', 'fleet-status', 'usage', 'events', 'readiness']) $(id).replaceChildren();
   }
@@ -138,6 +147,7 @@
     if (!state) return;
     for (const [key] of fields) { $('setting-' + key).value = state.settings[key]; $('setting-' + key).setCustomValidity(''); }
     region.value = state.settings.region; $('setting-dry_run').checked = state.settings.dry_run;
+    $('setting-position_basis').value = state.settings.position_basis || 'gps_source'; settingsBasisHelp();
     dirty = false; $('settings-dirty').hidden = true;
   }
   function updateButtons() {
@@ -151,7 +161,7 @@
     $('dry-help').textContent = state.dry_run ? 'Dry-run is active. Only USB can enable physical output.' : 'Selecting dry-run inhibits physical output. Returning to physical output requires USB.';
   }
   function render() {
-    const s = state;
+    const s = state, reportBased = s.position_basis === 'vehicle_report';
     $('controls').hidden = false; $('login').hidden = true;
     $('connection').textContent = 'Controller reachable'; $('connection').className = 'badge good';
     $('command').textContent = s.gpio_command; $('reason').textContent = reasons[s.reason] || readable(s.reason);
@@ -161,13 +171,21 @@
     $('auto-state').textContent = s.auto_home ? 'HOME authorized' : 'Not authorized';
     $('vehicle').textContent = readable(s.vehicle);
     $('distance').textContent = s.reported_distance_m < 0 ? 'Unavailable' : s.reported_distance_m.toFixed(1) + ' m';
-    $('position-note').textContent = 'From configured home · freshness unverified';
-    const gpsInvalid = s.fleet_endpoint === 'location' && s.fleet_detail.startsWith('gps_as_of_') && s.error === 'gps_source_time_unusable';
-    $('gps-state').textContent = gpsInvalid ? 'Invalid time' : s.location_age_s >= 0 ? 'Accepted fix' : 'No accepted fix';
-    $('gps-note').textContent = gpsInvalid ? 'Reported position cannot renew AUTO.' : s.location_age_s >= 0 ? 'Source age at snapshot: ' + duration(s.location_age_s) : 'Waiting for qualifying source-time evidence.';
+    $('position-note').textContent = 'From configured home · GPS freshness unverified';
+    const gpsInvalid = !reportBased && s.error === 'gps_source_time_unusable';
+    const reportInvalid = reportBased && s.error === 'vehicle_report_time_unusable';
+    $('evidence-title').textContent = reportBased ? 'VEHICLE REPORT TIME' : 'GPS SOURCE TIME';
+    $('gps-state').textContent = gpsInvalid || reportInvalid ? 'Invalid time' : s.location_age_s >= 0 ? (reportBased ? 'Last accepted report' : 'Last accepted fix') : (reportBased ? 'No accepted report' : 'No accepted fix');
+    $('gps-note').textContent = gpsInvalid ? 'Reported position cannot renew AUTO.' : reportInvalid ? 'This report cannot renew AUTO.' :
+      s.location_age_s >= 0 ? (reportBased ? 'Report age at snapshot: ' : 'GPS source age at snapshot: ') + duration(s.location_age_s) :
+      reportBased ? 'Waiting for a qualifying vehicle report timestamp.' : 'Waiting for qualifying GPS source-time evidence.';
+    $('basis-note').hidden = !reportBased;
+    $('basis-note').textContent = reportBased ? 'Latest reported position is selected. Freshness, leases and the sleeping-home ceiling use vehicle report time. A current report can contain older coordinates; GPS acquisition age remains unverified.' : '';
+    $('diagnostics-help').textContent = reportBased ? 'Local status refreshes do not query Tesla. AUTO uses vehicle report age; GPS source time remains diagnostic and does not establish coordinate age in this mode.' : 'Local status refreshes do not query Tesla. Reported positions with invalid GPS source time cannot renew AUTO.';
     const alert = s.fault ? 'Local fault: ' + readable(s.fault_source) + '. Output is inhibited. Use USB recovery.' :
       s.reauthorization_needed ? 'Tesla reauthorization or permission repair is needed. Use the USB helper; never replay an old token backup.' :
       gpsInvalid ? 'The Fleet GPS source time cannot establish fix age. A position near home alone cannot authorize the outlet.' :
+      reportInvalid ? 'The Fleet vehicle report time cannot establish report age. This position cannot renew AUTO.' :
       s.mode === 'TIMED_ON' ? 'Timed ON is active and deliberately bypasses vehicle presence and connectivity.' :
       !s.commissioned ? 'Commissioning is incomplete. Complete the USB-only physical bench checks before arming.' : '';
     $('alert').textContent = alert; $('alert').hidden = !alert;
@@ -177,10 +195,11 @@
       ['Wi-Fi', s.wifi_connected ? 'Connected · ' + s.rssi_dbm + ' dBm' : 'Disconnected'],
       ['UTC synchronized', s.utc_ready ? 'Yes' : 'No'], ['Uptime at snapshot', duration(s.uptime_s)],
       ['Last accepted poll', s.last_success_uptime_s ? 'At uptime ' + duration(s.last_success_uptime_s) : 'None this boot'],
-      ['Last error', s.error === 'none' ? 'None' : errors[s.error] || readable(s.error)],
+      ['Freshness basis', reportBased ? 'Latest reported position · vehicle report time' : 'GPS source time · strict'],
+      ['Last error', s.error === 'none' ? 'None' : reportBased && s.error === 'gps_source_time_unusable' ? 'GPS source time is unusable; the selected mode uses vehicle report time and does not establish GPS acquisition age.' : errors[s.error] || readable(s.error)],
       ['Control loop maximum gap', s.control_max_gap_ms + ' ms'], ['Free internal memory', Math.round(s.internal_heap_free / 1024) + ' KiB'],
       ['Local fault', s.fault ? readable(s.fault_source) : 'None'], ['Policy desired ON', s.desired_on ? 'Yes' : 'No'],
-      ['Accepted-fix distance', s.distance_m < 0 ? 'Unavailable' : s.distance_m.toFixed(1) + ' m']
+      [reportBased ? 'Accepted-report distance' : 'Accepted-fix distance', s.distance_m < 0 ? 'Unavailable' : s.distance_m.toFixed(1) + ' m']
     ]);
     facts('fleet-status', [
       ['Endpoint / HTTP status', s.fleet_endpoint + ' / ' + s.fleet_http_status], ['Parser detail', s.fleet_detail],
@@ -205,7 +224,7 @@
       [s.wifi_connected && s.utc_ready, 'Connectivity', 'Wi-Fi and synchronized UTC'],
       [s.commissioned, 'Bench checks', 'Physical measurements acknowledged through USB'],
       [!s.dry_run, 'Physical output', s.dry_run ? 'Inhibited by dry-run' : 'Enabled through USB'],
-      [s.auto_home, 'AUTO evidence', 'Live, source-anchored HOME authorization']
+      [s.auto_home, 'AUTO evidence', reportBased ? 'HOME authorization anchored to vehicle report time; GPS age unverified' : 'HOME authorization anchored to GPS source time']
     ]) {
       const li = document.createElement('li'), mark = document.createElement('strong'), text = document.createElement('span');
       mark.textContent = ok ? 'Ready' : 'Pending'; mark.className = ok ? 'good' : '';
@@ -307,7 +326,7 @@
     if (await confirmAction('Bypass Tesla presence?', 'Request ON for ' + duration(seconds) + ', even if the vehicle is away or unreachable. OFF or reboot cancels the override. Commissioning and minimum OFF dwell still apply.', 'Start timed ON') && at === epoch) action('timed_on', { seconds, generation });
   };
   $('check').onclick = () => action('check_now');
-  $('settings-form').oninput = () => { dirty = true; $('settings-dirty').hidden = false; for (const [key] of fields) $('setting-' + key).setCustomValidity(''); };
+  $('settings-form').oninput = () => { dirty = true; $('settings-dirty').hidden = false; settingsBasisHelp(); for (const [key] of fields) $('setting-' + key).setCustomValidity(''); };
   $('discard').onclick = loadSettings;
   $('settings-form').onsubmit = async e => {
     e.preventDefault(); const settings = {};
@@ -319,14 +338,16 @@
       $('settings-form').reportValidity(); return;
     }
     settings.region = region.value; settings.dry_run = $('setting-dry_run').checked;
+    settings.position_basis = $('setting-position_basis').value;
     if (state.dry_run && !settings.dry_run) { message(errors.usb_commissioning_required, true); return; }
     const at = epoch, generation = state.generation;
-    if (await confirmAction('Save settings?', 'This discards prior AUTO evidence and cancels any timed override. Your current mode is retained. New evidence is required before automatic authorization resumes.', 'Save settings') && at === epoch) action('settings', { settings, generation }, true);
+    const basisWarning = settings.position_basis === 'vehicle_report' ? 'Latest reported position uses vehicle report time for freshness, leases and the sleeping-home ceiling. A current report can contain older coordinates; it does not prove GPS acquisition age. ' : 'GPS source time will be required for freshness, leases and the sleeping-home ceiling. ';
+    if (await confirmAction('Save settings?', basisWarning + 'This discards prior AUTO evidence and cancels any timed override. Your current mode is retained. New evidence is required before automatic authorization resumes.', 'Save settings') && at === epoch) action('settings', { settings, generation }, true);
   };
   $('export').onclick = () => {
     if (!state) return;
     // Deliberate allowlist: never spread status/settings into a support report.
-    const keys = ['mode', 'commissioned', 'dry_run', 'gpio_command', 'reason', 'auto_home', 'lease_s', 'override_s', 'vehicle',
+    const keys = ['mode', 'commissioned', 'dry_run', 'position_basis', 'gpio_command', 'reason', 'auto_home', 'lease_s', 'override_s', 'vehicle',
       'wifi_connected', 'utc_ready', 'uptime_s', 'error', 'reauthorization_needed', 'poll_busy', 'fleet_endpoint', 'fleet_http_status',
       'fleet_detail', 'gps_source_text', 'fleet_txid', 'fleet_date', 'fleet_received_utc_s', 'report_timestamp_text', 'api_version',
       'attempts_this_boot', 'reserved_today', 'reserved_month', 'location_monthly_cap', 'ready', 'fault', 'fault_source', 'control_max_gap_ms', 'internal_heap_free', 'firmware_version', 'sdk_version'];

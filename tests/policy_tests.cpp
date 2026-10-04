@@ -156,3 +156,55 @@ TEST(sleep_after_known_departure_cannot_resurrect) {
     auto asleep=fix(epoch,3);asleep.kind=Evidence::Asleep;p.observe(asleep,120000,epoch+120,true);
     REQUIRE(!p.tick(120000).auto_home);REQUIRE(!p.tick(120000).commanded);
 }
+TEST(report_basis_requires_explicit_current_online_evidence) {
+    auto c=config();c.position_basis=uint8_t(PositionBasis::VehicleReport);
+    Policy p;p.configure(c,1,0);
+    p.observe(fix(epoch),0,epoch,true);REQUIRE(!p.tick(30000).auto_home);
+    auto report=fix(epoch+31,2);report.position_basis=PositionBasis::VehicleReport;
+    report.vehicle=Vehicle::Offline;p.observe(report,31000,epoch+31,true);
+    REQUIRE(!p.tick(31000).auto_home);
+    report.request=3;report.vehicle=Vehicle::Online;report.generation=2;
+    p.observe(report,31000,epoch+31,true);REQUIRE(!p.tick(31000).auto_home);
+    report.request=4;report.generation=1;p.observe(report,31000,epoch+31,true);
+    REQUIRE(p.tick(31000).commanded);
+    c.position_basis=uint8_t(PositionBasis::GpsSource);p.configure(c,2,32000);
+    report.request=5;report.generation=2;report.source_s=epoch+32;
+    p.observe(report,32000,epoch+32,true);REQUIRE(!p.tick(32000).auto_home);
+}
+TEST(report_duplicates_stale_and_future_evidence_do_not_renew) {
+    auto c=config();c.position_basis=uint8_t(PositionBasis::VehicleReport);
+    Policy p;p.configure(c,1,0);
+    auto report=fix(epoch);report.position_basis=PositionBasis::VehicleReport;
+    p.observe(report,0,epoch,true);REQUIRE(p.tick(30000).commanded);
+    report.request=2;p.observe(report,600000,epoch+600,true); // duplicate
+    report.request=3;report.source_s=epoch+479;p.observe(report,600000,epoch+600,true);
+    report.request=4;report.source_s=epoch+631;p.observe(report,600000,epoch+600,true);
+    REQUIRE(p.tick(899999).commanded);REQUIRE(!p.tick(900000).commanded);
+}
+TEST(report_sleep_ceiling_remains_anchored_to_last_report_not_sleep_receipts) {
+    auto c=config();c.position_basis=uint8_t(PositionBasis::VehicleReport);
+    Policy p;p.configure(c,1,0);
+    auto report=fix(epoch);report.position_basis=PositionBasis::VehicleReport;
+    p.observe(report,0,epoch,true);
+    auto sleep=report;sleep.kind=Evidence::Asleep;sleep.vehicle=Vehicle::Asleep;
+    for(int s=600;s<86400;s+=600) {
+        sleep.request=2+s/600;p.observe(sleep,Ms(s)*1000,epoch+s,true);
+        auto d=p.tick(Ms(s)*1000);REQUIRE(d.auto_home);
+        REQUIRE(d.last_source_s==epoch);REQUIRE(d.lease_left<=86400000-Ms(s)*1000);
+    }
+    REQUIRE(!p.tick(86400000).auto_home);
+    sleep.request=1000;p.observe(sleep,86400001,epoch+86400,true);
+    REQUIRE(!p.tick(86400001).auto_home);
+}
+TEST(version_one_padding_cannot_opt_into_report_policy) {
+    for(uint8_t padding:{uint8_t(1),uint8_t(255)}) {
+        auto c=config();c.version=1;c.position_basis=padding;
+        REQUIRE(valid_config(c));REQUIRE(effective_position_basis(c)==PositionBasis::GpsSource);
+        Policy p;p.configure(c,1,0);
+        auto report=fix(epoch);report.position_basis=PositionBasis::VehicleReport;
+        p.observe(report,0,epoch,true);REQUIRE(!p.tick(30000).auto_home);
+        p.observe(fix(epoch+31,2),31000,epoch+31,true);REQUIRE(p.tick(31000).commanded);
+    }
+    auto c=config();c.position_basis=2;REQUIRE(!valid_config(c));
+    c=config();c.version=3;REQUIRE(!valid_config(c));
+}

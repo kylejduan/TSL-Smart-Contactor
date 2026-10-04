@@ -66,6 +66,59 @@ const fs = require('node:fs/promises');
       await page.waitForFunction(() => document.getElementById('settings-dirty').hidden && !document.getElementById('save').disabled);
       assert.equal((await read()).state.settings.enable_m, 110);
     });
+    await run('report-time opt-in is explicit and describes report age without claiming GPS freshness', async () => {
+      await reset({ commissioned: true, mode: 'AUTO', error: 'none', reason: 'no_auto_authorization' });
+      assert.equal(await page.locator('#setting-position_basis').inputValue(), 'gps_source');
+      assert.equal(await page.locator('#basis-note').isVisible(), false);
+      await page.locator('#setting-position_basis').selectOption('vehicle_report'); await refresh();
+      assert.equal(await page.locator('#setting-position_basis').inputValue(), 'vehicle_report');
+      await waitText('evidence-title', 'GPS SOURCE TIME'); // Unsaved choice never relabels live evidence.
+      await page.locator('#discard').click();
+      assert.equal(await page.locator('#setting-position_basis').inputValue(), 'gps_source');
+      await page.locator('#setting-position_basis').selectOption('vehicle_report');
+      await page.locator('#save').click(); await waitText('confirm-text', 'does not prove GPS acquisition age');
+      await waitText('confirm-text', 'sleeping-home ceiling');
+      await page.locator('#confirmation button[value="cancel"]').click();
+      assert.equal((await read()).state.position_basis, 'gps_source');
+      await page.locator('#save').click(); await page.locator('#confirm-accept').click();
+      await page.waitForFunction(() => document.getElementById('settings-dirty').hidden && !document.getElementById('save').disabled);
+      assert.equal((await read()).commands.at(-1).settings.position_basis, 'vehicle_report');
+      await waitText('evidence-title', 'VEHICLE REPORT TIME');
+      await waitText('gps-state', 'No accepted report');
+      await waitText('basis-note', 'current report can contain older coordinates');
+      await waitText('setting-max_age_s-label', 'Maximum vehicle report age');
+      await waitText('setting-sleep_s-hint', 'last qualifying vehicle report');
+      await fixture({ state: { auto_home: true, desired_on: true, lease_s: 898, location_age_s: 2,
+        distance_m: 2.3, reported_distance_m: 2.3, error: 'none', reason: 'dry_run_output_inhibited' } });
+      await refresh(); await waitText('auto-state', 'HOME authorized'); await waitText('command', 'OFF commanded');
+      await waitText('gps-state', 'Last accepted report'); await waitText('gps-note', 'Report age at snapshot: 2s');
+      await waitText('fleet-status', '-123456789');
+      assert.equal((await page.locator('#alert').textContent()).includes('GPS source time'), false);
+      await waitText('readiness', 'GPS age unverified');
+      const downloading = page.waitForEvent('download'); await page.locator('#export').click();
+      const report = JSON.parse(await fs.readFile(await (await downloading).path(), 'utf8'));
+      assert.equal(report.status.position_basis, 'vehicle_report');
+      await fixture({ state: { error: 'vehicle_report_time_unusable', fleet_detail: 'timestamp_missing',
+        auto_home: false, lease_s: 0, location_age_s: -1 } });
+      await refresh(); await waitText('gps-state', 'Invalid time'); await waitText('alert', 'cannot establish report age');
+      await waitText('status', 'no usable vehicle report time');
+    });
+    await run('returning to strict source time clears report evidence and rejects late report snapshots', async () => {
+      await fixture({ state: { error: 'none', auto_home: true, lease_s: 890, location_age_s: 10 } });
+      await refresh(); await waitText('gps-state', 'Last accepted report');
+      await fixture({ status_delay: 1 }); await page.locator('#refresh').click();
+      await page.waitForTimeout(120);
+      await page.locator('#setting-position_basis').selectOption('gps_source');
+      await page.locator('#save').click(); await waitText('confirm-text', 'GPS source time will be required');
+      await fixture({ status_delay: 0 }); await page.locator('#confirm-accept').click();
+      await page.waitForFunction(() => document.getElementById('settings-dirty').hidden && !document.getElementById('save').disabled);
+      await page.waitForTimeout(1100);
+      await waitText('evidence-title', 'GPS SOURCE TIME'); await waitText('gps-state', 'No accepted fix');
+      await waitText('auto-state', 'Not authorized');
+      assert.equal(await page.locator('#basis-note').isVisible(), false);
+      assert.equal(await page.locator('#setting-position_basis').inputValue(), 'gps_source');
+      assert.equal((await read()).state.lease_s, 0);
+    });
     await run('AUTO and timed override require deliberate confirmation; OFF wins', async () => {
       await reset({ commissioned: true, reason: 'user_disabled' });
       await page.locator('#auto').click(); await page.locator('#confirmation button[value="cancel"]').click();
@@ -115,6 +168,7 @@ const fs = require('node:fs/promises');
       const download = await downloading; const raw = await fs.readFile(await download.path(), 'utf8');
       const report = JSON.parse(raw); assert.equal(report.status.gps_source_text, '-123456789');
       assert.equal(report.status.fleet_txid, 'synthetic-request-id');
+      assert.equal(report.status.position_basis, 'gps_source');
       for (const secret of ['5YJ3E1EA7KF000001', 'home_lat', 'home_lon', 'synthetic-csrf', 'synthetic-admin-password', 'reported_distance_m']) assert.equal(raw.includes(secret), false);
       assert.equal(report.events.length, 1);
     });

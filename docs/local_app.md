@@ -9,14 +9,16 @@ local CA are generated during USB preparation. Port 80 is not served.
 
 - **ON commanded / OFF commanded** is the last recorded GPIO command, never proof
   of receptacle voltage or charging.
-- **AUTO permission** is the independent source-anchored HOME lease. Manual override
-  and dry-run do not create this permission.
+- **AUTO permission** is the independent HOME lease anchored to the timestamp chosen
+  by the position policy. Manual override and dry-run do not create this permission.
 - **Reported position** is the distance from returned coordinates to configured
-  home, labeled freshness unverified. An invalid timestamp cannot authorize AUTO.
-- **Location evidence** distinguishes an accepted fix from missing or unusable GPS
-  source time. The latter has its own `gps_source_time_unusable` error category;
-  malformed JSON or coordinates remain `malformed_data`. General report timestamps
-  are diagnostic only.
+  home, labeled freshness unverified. Distance alone cannot authorize AUTO.
+- **Location evidence** identifies the selected basis. Strict `gps_source` requires
+  GPS acquisition time; missing or unusable time reports
+  `gps_source_time_unusable`. Opt-in `vehicle_report` instead validates vehicle
+  report time and shows report age; it does not establish GPS acquisition age.
+  Malformed JSON or coordinates remain `malformed_data`. Raw GPS timestamp values
+  remain available in diagnostics even when report mode is selected.
 - **Readiness** lists profile/clock/network, physical bench acknowledgement,
   physical-output enablement and AUTO evidence separately.
 
@@ -55,6 +57,29 @@ radius must exceed enable radius; sleep ceiling must be at least the ordinary
 lease. Drafts survive status refresh; Discard edits reloads the last fetched
 settings. Save asks for confirmation, clears old evidence/overrides, and retains
 the persistent AUTO/DISABLED selection. Fresh evidence is required to resume AUTO.
+
+The position basis defaults to **GPS source time** (`gps_source`), including for
+existing configurations. Its 120-second maximum age applies to
+`drive_state.gps_as_of` and preserves the original source-age rule.
+
+**Latest reported position** (`vehicle_report`) is a deliberate alternative. It
+requires an ONLINE status check, valid coordinates and a valid
+`drive_state.timestamp` in whole milliseconds. The same 120-second age and
+30-second future limits apply to that report, whose GPS coordinates may be older.
+The ordinary 900-second lease and fixed 24-hour sleeping-home ceiling are anchored
+to the last qualifying report timestamp; repeated or older reports cannot renew
+them. This choice accepts weaker evidence than verified GPS source age. It is not
+a conversion or repair for a negative `gps_as_of`.
+
+To choose it, review the limitation in Settings, select the desired basis and
+confirm the save. The change clears previous evidence/overrides and invalidates
+in-flight results; it does not commission the installation or enable physical
+output. Neither mode switches itself based on whichever timestamp happens to be
+valid, and neither uses local receipt time. The option's live activation awaits
+the owner's explicit choice; availability in the interface is not acceptance or
+live verification. After a schema 2 configuration is saved, downgrading to older
+firmware causes configuration rejection and OFF rather than a silent policy
+change. Credentials are not automatically erased.
 
 The browser may enter dry-run. Arming, leaving dry-run, secret replacement and
 network/certificate provisioning remain USB-only. The page includes the exact

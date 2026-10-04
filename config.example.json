@@ -3,6 +3,7 @@
   "home_lat": null,
   "home_lon": null,
   "region": "NA",
+  "position_basis": "gps_source",
   "enable_m": 100,
   "disable_m": 200,
   "max_age_s": 120,

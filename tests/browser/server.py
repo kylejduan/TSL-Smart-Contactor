@@ -16,10 +16,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2] / 'main'
 SETTINGS = dict(vin='5YJ3E1EA7KF000001', home_lat=0, home_lon=0, region='NA', enable_m=100,
     disable_m=200, max_age_s=120, future_s=30, lease_s=900, sleep_s=86400, poll_s=600,
-    dwell_s=30, daily_cap=400, monthly_cap=12000, dry_run=True)
+    dwell_s=30, daily_cap=400, monthly_cap=12000, dry_run=True, position_basis='gps_source')
 BASE = dict(generation=1, mode='DISABLED', commissioned=False, dry_run=True, auto_home=False, desired_on=False,
     gpio_command='OFF commanded', reason='uncommissioned', lease_s=0, override_s=0, vehicle='online',
-    location_age_s=-1, distance_m=-1, reported_distance_m=2.3, last_success_uptime_s=0, next_poll_s=-1,
+    position_basis='gps_source', location_age_s=-1, distance_m=-1, reported_distance_m=2.3, last_success_uptime_s=0, next_poll_s=-1,
     wifi_connected=True, rssi_dbm=-48, uptime_s=600, utc_ready=True, error='gps_source_time_unusable',
     reauthorization_needed=False, poll_busy=False, fleet_endpoint='location', fleet_http_status=200,
     fleet_detail='gps_as_of_out_of_range', gps_source_value=-123456789, gps_source_text='-123456789',
@@ -123,7 +123,12 @@ class Handler(BaseHTTPRequestHandler):
                 s['poll_busy']=True
             elif action=='settings':
                 if s['dry_run'] and not body['settings']['dry_run']:return self.send(dict(error='usb_commissioning_required'),409)
-                s.update(settings=body['settings'],dry_run=body['settings']['dry_run'],auto_home=False,lease_s=0,override_s=0)
+                if body['settings'].get('position_basis') not in ('gps_source', 'vehicle_report'):
+                    return self.send(dict(error='invalid_settings'),400)
+                s.update(settings=body['settings'],dry_run=body['settings']['dry_run'],
+                    position_basis=body['settings']['position_basis'],auto_home=False,desired_on=False,
+                    gpio_command='OFF commanded',lease_s=0,override_s=0,location_age_s=-1,distance_m=-1,
+                    error='none',reason='no_auto_authorization' if s['commissioned'] else 'uncommissioned')
             else:return self.send(dict(error='unknown_action'),400)
             delay=0 if action=='off' else FIXTURE.action_delay
         time.sleep(delay)

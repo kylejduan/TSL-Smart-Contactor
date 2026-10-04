@@ -259,8 +259,9 @@ size_t status_json(char* out,size_t capacity) {
     wifi_ap_record_t ap{};int rssi=wifi_connected && esp_wifi_sta_get_ap_info(&ap)==ESP_OK ? ap.rssi : 0;
     auto remaining=s.polling_paused || s.config.disabled ? -1 : std::max<Ms>(0,s.next_poll-now_ms())/1000;
     long long age=d.last_source_s && s.utc_ok ? time(nullptr)-d.last_source_s : -1;
+    const char* basis=position_basis_name(effective_position_basis(s.config));
     int n=std::snprintf(out,capacity,
-        "{\"generation\":%lu,\"mode\":\"%s\",\"commissioned\":%s,\"dry_run\":%s,\"auto_home\":%s,"
+        "{\"position_basis\":\"%s\",\"generation\":%lu,\"mode\":\"%s\",\"commissioned\":%s,\"dry_run\":%s,\"auto_home\":%s,"
         "\"desired_on\":%s,\"gpio_command\":\"%s commanded\",\"reason\":\"%s\","
         "\"lease_s\":%lld,\"override_s\":%lld,\"vehicle\":\"%s\",\"location_age_s\":%lld,"
         "\"distance_m\":%.1f,\"last_success_uptime_s\":%lld,\"next_poll_s\":%lld,"
@@ -272,8 +273,8 @@ size_t status_json(char* out,size_t capacity) {
         "\"firmware_version\":\"%s\",\"sdk_version\":\"%s\",\"session_left_s\":%lld,"
         "\"settings\":{\"vin\":\"%s\",\"home_lat\":%.7f,\"home_lon\":%.7f,\"enable_m\":%lu,\"disable_m\":%lu,"
         "\"max_age_s\":%lu,\"future_s\":%lu,\"lease_s\":%lu,\"sleep_s\":%lu,\"poll_s\":%lu,\"dwell_s\":%lu,"
-        "\"daily_cap\":%lu,\"monthly_cap\":%lu,\"region\":\"%s\",\"dry_run\":%s}}",
-        (unsigned long)s.generation,s.config.disabled?"DISABLED":(d.timed?"TIMED_ON":"AUTO"),s.config.commissioned?"true":"false",s.config.dry_run?"true":"false",
+        "\"daily_cap\":%lu,\"monthly_cap\":%lu,\"region\":\"%s\",\"dry_run\":%s,\"position_basis\":\"%s\"}}",
+        basis,(unsigned long)s.generation,s.config.disabled?"DISABLED":(d.timed?"TIMED_ON":"AUTO"),s.config.commissioned?"true":"false",s.config.dry_run?"true":"false",
         d.auto_home?"true":"false",d.desired?"true":"false",d.commanded?"ON":"OFF",reason_name(d.reason),
         d.lease_left/1000,d.override_left/1000,vehicle_name(s.vehicle),age,d.distance,s.last_poll/1000,remaining,
         wifi_connected?"true":"false",rssi,now_ms()/1000,s.utc_ok?"true":"false",error_name(s.error),
@@ -291,7 +292,7 @@ size_t status_json(char* out,size_t capacity) {
         s.config.vin,s.config.home_lat,s.config.home_lon,(unsigned long)s.config.enable_m,(unsigned long)s.config.disable_m,
         (unsigned long)s.config.max_age_s,(unsigned long)s.config.future_s,(unsigned long)s.config.lease_s,(unsigned long)s.config.sleep_s,
         (unsigned long)s.config.poll_s,(unsigned long)s.config.dwell_s,(unsigned long)s.config.daily_cap,(unsigned long)s.config.monthly_cap,
-        s.config.region?"EU":"NA",s.config.dry_run?"true":"false");
+        s.config.region?"EU":"NA",s.config.dry_run?"true":"false",basis);
     return n>0 && size_t(n)<capacity ? size_t(n) : 0;
 }
 bool start_management(Profile& p) {

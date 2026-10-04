@@ -4,6 +4,16 @@
 #include <cstring>
 
 namespace tsl {
+PositionBasis effective_position_basis(const Config& c) {
+    return c.version==1 ? PositionBasis::GpsSource : static_cast<PositionBasis>(c.position_basis);
+}
+const char* position_basis_name(PositionBasis basis) {
+    switch(basis) {
+    case PositionBasis::GpsSource:return "gps_source";
+    case PositionBasis::VehicleReport:return "vehicle_report";
+    }
+    return "unknown";
+}
 bool valid_vin(const char* s) {
     if (std::strlen(s) != 17) return false;
     for (int i = 0; i < 17; ++i)
@@ -12,7 +22,8 @@ bool valid_vin(const char* s) {
     return true;
 }
 bool valid_config(const Config& c) {
-    return c.version == 1 && c.vin[17] == 0 && valid_vin(c.vin) &&
+    return (c.version == 1 || (c.version == 2 && c.position_basis<=1)) &&
+        c.vin[17] == 0 && valid_vin(c.vin) &&
         std::isfinite(c.home_lat) && std::isfinite(c.home_lon) &&
         std::abs(c.home_lat) <= 90 && std::abs(c.home_lon) <= 180 &&
         c.enable_m >= 10 && c.enable_m < c.disable_m && c.disable_m <= 10000 &&
@@ -71,7 +82,9 @@ void Policy::observe(const Observation& o, Ms now, int64_t utc, bool clock_valid
             lease_ = std::min(now + Ms(config_.lease_s)*1000, ceiling_);
         return;
     }
-    if (o.kind != Evidence::Location || !o.quality_ok || !std::isfinite(o.lat) ||
+    if (o.kind != Evidence::Location || o.position_basis!=effective_position_basis(config_) ||
+        (o.position_basis==PositionBasis::VehicleReport && o.vehicle!=Vehicle::Online) ||
+        !o.quality_ok || !std::isfinite(o.lat) ||
         !std::isfinite(o.lon) || std::abs(o.lat) > 90 || std::abs(o.lon) > 180 ||
         o.source_s < 1577836800LL || o.source_s > 4102444800LL ||
         o.source_s <= last_seen_source_ || o.source_s > utc + config_.future_s ||
@@ -81,7 +94,9 @@ void Policy::observe(const Observation& o, Ms now, int64_t utc, bool clock_valid
     if (distance_ >= config_.disable_m) { invalidate(); return; }
     if (distance_ <= config_.enable_m) home_ = true;
     if (!home_) return;
-    // Tolerated future GPS never grants an extra 30 seconds of lease.
+    // Anchor both deadlines to the explicitly selected timestamp basis. Report
+    // age is a weaker opt-in proxy and never establishes GPS acquisition age.
+    // A tolerated future timestamp grants no extra lease time.
     const Ms age = std::max<int64_t>(0, utc-o.source_s)*1000;
     lease_ = now + Ms(config_.lease_s)*1000 - age;
     ceiling_ = now + Ms(config_.sleep_s)*1000 - age;

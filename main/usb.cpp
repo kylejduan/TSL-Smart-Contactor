@@ -128,7 +128,8 @@ void process(const char* input) {
     if(j.equal(op,"diagnostics")) {diagnostics();return;}
     if(j.equal(op,"status")) {
         auto s=snapshot();char b[256]={};
-        std::snprintf(b,sizeof b,"{\"generation\":%lu,\"ready\":%s,\"commissioned\":%s,\"disabled\":%s,\"dry_run\":%s,\"commanded_on\":%s,\"fault\":%s}",
+        std::snprintf(b,sizeof b,"{\"position_basis\":\"%s\",\"config_version\":%lu,\"generation\":%lu,\"ready\":%s,\"commissioned\":%s,\"disabled\":%s,\"dry_run\":%s,\"commanded_on\":%s,\"fault\":%s}",
+            position_basis_name(effective_position_basis(s.config)),(unsigned long)s.config.version,
             (unsigned long)s.generation,s.ready?"true":"false",s.config.commissioned?"true":"false",s.config.disabled?"true":"false",
             s.config.dry_run?"true":"false",s.decision.commanded?"true":"false",critical_fault?"true":"false");
         send(b);return;

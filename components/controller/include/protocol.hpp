@@ -5,13 +5,13 @@
 #include <string_view>
 namespace tsl {
 enum class Error : uint8_t {
-    None, Transport, Timeout, TooLarge, Malformed, SourceTime, Authentication, Permission,
+    None, Transport, Timeout, TooLarge, Malformed, SourceTime, ReportTime, Authentication, Permission,
     RateLimit, Billing, Unavailable, Server, Redirect, Budget, Storage, Reauthorize, Clock, Wifi
 };
 const char* error_name(Error e); // Only these fixed labels go to logs/status.
 Error http_error(int status);
 struct VehicleMetadata {
-    char report_timestamp_text[64]={}; // Diagnostic only, never a GPS freshness source.
+    char report_timestamp_text[64]={}; // Report time, never a GPS freshness guarantee.
     int64_t api_version=-1;
     bool coordinates_valid=false; // Numeric/range validity only, not freshness.
 };
@@ -19,7 +19,7 @@ struct VehicleMetadata {
 Error parse_vehicle(std::string_view body, const char* vin, bool location, Observation& o,
                     const char** detail=nullptr,double* gps_source_value=nullptr,
                     char* gps_source_text=nullptr,size_t source_capacity=0,
-                    VehicleMetadata* metadata=nullptr);
+                    VehicleMetadata* metadata=nullptr,PositionBasis basis=PositionBasis::GpsSource);
 struct Tokens {
     char access[4097] = {}, refresh[2049] = {};
     uint32_t expires_s = 0;

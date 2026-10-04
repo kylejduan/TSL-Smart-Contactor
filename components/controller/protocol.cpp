@@ -7,6 +7,7 @@ const char* error_name(Error e) {
     case Error::None:return "none"; case Error::Transport:return "transport";
     case Error::Timeout:return "timeout"; case Error::TooLarge:return "response_too_large";
     case Error::Malformed:return "malformed_data"; case Error::SourceTime:return "gps_source_time_unusable";
+    case Error::ReportTime:return "vehicle_report_time_unusable";
     case Error::Authentication:return "authentication";
     case Error::Permission:return "missing_permission"; case Error::RateLimit:return "rate_limit";
     case Error::Billing:return "billing"; case Error::Unavailable:return "vehicle_unavailable";
@@ -29,7 +30,41 @@ Error http_error(int s) {
     if(s>=300 && s<400) return Error::Redirect;
     return Error::Malformed;
 }
-Error parse_vehicle(std::string_view body, const char* vin, bool location, Observation& o,const char** detail,double* gps_source_value,char* gps_source_text,size_t source_capacity,VehicleMetadata* metadata) {
+// Accept whole numeric JSON notation without rounding fractional milliseconds
+// into a valid timestamp. The caller separately checks the modern UTC range.
+static bool exact_positive_integer(const Json& j,int field,int64_t& out) {
+    if(j.integer(field,out))return true;
+    char text[64]={},digits[64]={};
+    if(!j.number_text(field,text,sizeof text) || text[0]=='-')return false;
+    size_t count=0,i=0;int fractional=0,exponent=0;bool fraction=false;
+    for(;text[i] && text[i]!='e' && text[i]!='E';++i) {
+        if(text[i]=='.') {fraction=true;continue;}
+        digits[count++]=text[i];if(fraction)++fractional;
+    }
+    if(text[i]) {
+        ++i;bool negative=text[i]=='-';
+        if(text[i]=='-' || text[i]=='+')++i;
+        for(;text[i];++i) {
+            exponent=exponent*10+(text[i]-'0');
+            if(exponent>64)return false;
+        }
+        if(negative)exponent=-exponent;
+    }
+    int scale=exponent-fractional;
+    while(scale<0) {
+        if(!count || digits[count-1]!='0')return false;
+        --count;++scale;
+    }
+    int64_t value=0;
+    for(size_t k=0;k<count;++k) {
+        int digit=digits[k]-'0';
+        if(value>(INT64_MAX-digit)/10)return false;
+        value=value*10+digit;
+    }
+    while(scale--) {if(value>INT64_MAX/10)return false;value*=10;}
+    out=value;return true;
+}
+Error parse_vehicle(std::string_view body, const char* vin, bool location, Observation& o,const char** detail,double* gps_source_value,char* gps_source_text,size_t source_capacity,VehicleMetadata* metadata,PositionBasis basis) {
     if(detail)*detail="none";
     if(gps_source_value)*gps_source_value=-1;
     if(gps_source_text && source_capacity)gps_source_text[0]=0;
@@ -38,6 +73,9 @@ Error parse_vehicle(std::string_view body, const char* vin, bool location, Obser
         if(detail)*detail=reason;
         return error;
     };
+    const bool online_preflight=o.vehicle==Vehicle::Online;
+    o.position_basis=basis;
+    o.kind=Evidence::Unknown;
     Json j;
     if(!j.parse(body)) return reject("invalid_json");
     int r=j.get(0,"response"); char identity[18] = {};
@@ -53,7 +91,6 @@ Error parse_vehicle(std::string_view body, const char* vin, bool location, Obser
     else if(j.equal(state,"online")) o.vehicle=Vehicle::Online;
     else if(j.equal(state,"offline")) o.vehicle=Vehicle::Offline;
     else o.vehicle=Vehicle::Unknown;
-    o.kind=Evidence::Unknown;
     if(!location) {
         if(o.vehicle==Vehicle::Asleep) o.kind=Evidence::Asleep;
         return Error::None;
@@ -65,12 +102,38 @@ Error parse_vehicle(std::string_view body, const char* vin, bool location, Obser
        std::abs(o.lat)>90 || std::abs(o.lon)>180)return reject("coordinates_missing_or_invalid");
     if(metadata)metadata->coordinates_valid=true;
     int source=j.get(d,"gps_as_of");
-    if(source<0)return reject("gps_as_of_missing",Error::SourceTime);
-    if(j.is(source,Json::Type::Null))return reject("gps_as_of_null",Error::SourceTime);
+    // Keep original GPS diagnostics independent of the selected authorization
+    // basis. Missing/negative GPS never triggers an automatic fallback.
     j.number_text(source,gps_source_text,source_capacity);
     double seconds=0;
-    if(!j.number(source,seconds))return reject("gps_as_of_not_numeric",Error::SourceTime);
-    if(gps_source_value)*gps_source_value=seconds;
+    bool numeric_source=j.number(source,seconds);
+    if(numeric_source && gps_source_value)*gps_source_value=seconds;
+    if(basis==PositionBasis::VehicleReport) {
+        if(!online_preflight)return reject("location_requires_online_status",Error::Unavailable);
+        if(state>=0 && o.vehicle!=Vehicle::Online)
+            return reject("location_vehicle_not_online",Error::Unavailable);
+        o.vehicle=Vehicle::Online; // Missing state retains the successful preflight.
+        int report=j.get(d,"timestamp");
+        if(report<0)return reject("report_timestamp_missing",Error::ReportTime);
+        if(j.is(report,Json::Type::Null))return reject("report_timestamp_null",Error::ReportTime);
+        double value=0;
+        if(!j.number(report,value))return reject("report_timestamp_not_numeric",Error::ReportTime);
+        if(value>=1577836800.0 && value<=4102444800.0)
+            return reject("report_timestamp_second_scale",Error::ReportTime);
+        if(value<1577836800000.0 || value>4102444800000.0)
+            return reject("report_timestamp_out_of_range",Error::ReportTime);
+        int64_t millis=0;
+        if(!exact_positive_integer(j,report,millis))
+            return reject("report_timestamp_fractional_milliseconds",Error::ReportTime);
+        // Round down; transport/receipt time can never make the report fresh.
+        o.source_s=millis/1000;
+        if(detail)*detail="vehicle_report_timestamp";
+        o.kind=Evidence::Location;return Error::None;
+    }
+    if(basis!=PositionBasis::GpsSource)return reject("position_basis_invalid");
+    if(source<0)return reject("gps_as_of_missing",Error::SourceTime);
+    if(j.is(source,Json::Type::Null))return reject("gps_as_of_null",Error::SourceTime);
+    if(!numeric_source)return reject("gps_as_of_not_numeric",Error::SourceTime);
     if(seconds>=1577836800000.0 && seconds<=4102444800000.0)
         return reject("gps_as_of_millisecond_scale",Error::SourceTime);
     if(seconds<1577836800.0 || seconds>4102444800.0)
@@ -82,8 +145,7 @@ Error parse_vehicle(std::string_view body, const char* vin, bool location, Obser
         o.source_s=static_cast<int64_t>(seconds);
         if(detail)*detail="gps_as_of_numeric_seconds";
     }
-    // No documented accuracy field. Do not substitute drive_state.timestamp,
-    // native coordinates, or a synthetic location_data response object.
+    // Strict mode never substitutes the vehicle report timestamp for GPS time.
     o.kind=Evidence::Location;
     return Error::None;
 }
@@ -120,6 +182,8 @@ Error parse_tokens(std::string_view body, Tokens& out) {
     out.expires_s=exp; return Error::None;
 }
 bool parse_config(const Json& j, int o, Config& c) {
+    if(c.version!=1 && c.version!=2)return false;
+    c.position_basis=static_cast<uint8_t>(effective_position_basis(c));c.version=2;
     if(!j.string(j.get(o,"vin"),c.vin,sizeof c.vin) ||
        !j.number(j.get(o,"home_lat"),c.home_lat) || !j.number(j.get(o,"home_lon"),c.home_lon)) return false;
     struct Field { const char* name; uint32_t* value; };
@@ -132,6 +196,12 @@ bool parse_config(const Json& j, int o, Config& c) {
     }
     int dry=j.get(o,"dry_run");
     if(dry>=0 && !j.boolean(dry,c.dry_run))return false;
+    int basis=j.get(o,"position_basis");
+    if(basis>=0) {
+        if(j.equal(basis,"gps_source"))c.position_basis=uint8_t(PositionBasis::GpsSource);
+        else if(j.equal(basis,"vehicle_report"))c.position_basis=uint8_t(PositionBasis::VehicleReport);
+        else return false;
+    }
     int region=j.get(o,"region");
     if(region>=0) {
         if(j.equal(region,"NA"))c.region=0;

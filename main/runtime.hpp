@@ -16,6 +16,11 @@ struct Profile {
     char certificate[2049]={}, private_key[4097]={}, origin[193]={};
     uint32_t crc=0;
 };
+// Config schema 2 uses one former padding byte. Existing NVS profiles retain
+// their exact layout/CRC coverage; schema 1 always selects strict GPS time.
+static_assert(sizeof(Profile)==6720 && offsetof(Profile,config)==8 &&
+              offsetof(Profile,ssid)==96 && offsetof(Profile,crc)==6712,
+              "Stored profile layout changed; an explicit migration is required");
 struct Snapshot {
     Config config{};
     Decision decision{};
