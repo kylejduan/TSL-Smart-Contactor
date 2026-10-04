@@ -28,6 +28,24 @@ GPS_NUMBER = re.compile(rb'"gps_as_of"\s*:\s*(-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?
 BEARER = re.compile(r"[A-Za-z0-9._~+/=-]{1,4096}\Z")
 
 
+def client_secret_from_file(path: Path) -> str:
+    """Read only the explicitly labelled Tesla secret, never an unkeyed password."""
+    try:
+        if path.stat().st_size > 4096:
+            raise SetupError("Client-secret file is too large.")
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError):
+        raise SetupError("Cannot read client-secret file; path and details suppressed.") from None
+    found = []
+    for line in lines:
+        key, separator, value = line.partition("=")
+        if separator and key.strip() == "TESLA_CLIENT_SECRET":
+            found.append(value.strip())
+    if len(found) != 1 or not found[0] or len(found[0]) > 4096:
+        raise SetupError("Expected one nonempty TESLA_CLIENT_SECRET entry in the local file.")
+    return found[0]
+
+
 def inspect_location(raw: bytes, vin: str) -> dict:
     """Compare the original JSON number text with an independent Python parse."""
     document = decode_json(raw)
@@ -87,6 +105,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Independent one-shot Fleet GPS diagnostic")
     parser.add_argument("--directory", type=Path, required=True,
                         help="Existing private onboarding directory containing setup.json")
+    parser.add_argument("--client-secret-file", type=Path,
+                        help="Local file with one TESLA_CLIENT_SECRET=... entry; never pass the value as an argument")
     args = parser.parse_args()
     meta = json.loads((args.directory / "setup.json").read_text(encoding="utf-8"))
     if meta.get("region") != "NA":
@@ -100,7 +120,8 @@ def main() -> None:
     print("The status/location requests may incur Fleet charges. No token is saved or refreshed.")
     if input("Type CHECK to begin fresh consent: ") != "CHECK":
         raise SetupError("Canceled before Tesla requests.")
-    secret = getpass.getpass("Tesla client secret (hidden, used only for code exchange): ")
+    secret = (client_secret_from_file(args.client_secret_file) if args.client_secret_file else
+              getpass.getpass("Tesla client secret (hidden, used only for code exchange): "))
     state = secrets.token_urlsafe(32)
     authorization = AUTHORIZE_URL + "?" + urllib.parse.urlencode({
         "response_type": "code", "client_id": client_id, "redirect_uri": redirect,

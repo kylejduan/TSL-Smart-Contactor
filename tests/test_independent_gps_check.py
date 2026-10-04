@@ -14,6 +14,18 @@ VIN = "5YJ3E1EA7KF000001"  # Synthetic identifier, never a real vehicle.
 
 
 class IndependentGpsCheckTests(unittest.TestCase):
+    def test_secret_file_requires_explicit_key_and_never_uses_unkeyed_password(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "env.txt"
+            path.write_text("local-admin-password\n")
+            with self.assertRaisesRegex(SetupError, "TESLA_CLIENT_SECRET"):
+                check.client_secret_from_file(path)
+            path.write_text("local-admin-password\nTESLA_CLIENT_SECRET=synthetic-secret\n")
+            self.assertEqual(check.client_secret_from_file(path), "synthetic-secret")
+            path.write_text("TESLA_CLIENT_SECRET=one\nTESLA_CLIENT_SECRET=two\n")
+            with self.assertRaisesRegex(SetupError, "TESLA_CLIENT_SECRET"):
+                check.client_secret_from_file(path)
+
     def test_original_negative_number_survives_independent_json_parse(self):
         raw = (b'{"response":{"vin":"' + VIN.encode() + b'","drive_state":{'
                b'"latitude":1,"longitude":2,"gps_as_of":-123456789,'
