@@ -14,6 +14,7 @@ std::atomic<bool> critical_fault{false},wifi_connected{false},utc_synced{false},
 std::atomic<bool> check_requested{false};
 std::atomic<const char*> fault_source{nullptr};
 std::atomic<uint32_t> failed_allocation_bytes{0},control_max_gap_ms{0};
+std::atomic<uint32_t> wifi_disconnect_reason{0},wifi_connect_error{0},wifi_connect_attempts{0};
 void fail(const char* reason) {
     const char* empty=nullptr;
     fault_source.compare_exchange_strong(empty,reason);

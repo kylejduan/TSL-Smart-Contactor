@@ -16,20 +16,26 @@ namespace app {
 static_assert(CONFIG_LWIP_DNS_MAX_SERVERS>=2,
     "IDF reserves the last DNS slot; DHCP needs a separate usable slot");
 static void sync_callback(timeval*) {utc_synced=true;}
-static void wifi_event(void*,esp_event_base_t base,int32_t id,void*) {
+static void wifi_event(void*,esp_event_base_t base,int32_t id,void* data) {
     if(base==IP_EVENT && id==IP_EVENT_STA_GOT_IP) {
         wifi_connected=true;
+        wifi_connect_error=0;
         // DNS and routing are available now. Also discard any old SNTP backoff
         // on reconnection; never accept an unsynchronized RTC as usable UTC.
         if(esp_netif_sntp_start()!=ESP_OK)fail("sntp_start");
     }
-    if(base==WIFI_EVENT && id==WIFI_EVENT_STA_DISCONNECTED)wifi_connected=false;
+    if(base==WIFI_EVENT && id==WIFI_EVENT_STA_DISCONNECTED) {
+        wifi_connected=false;
+        if(data)wifi_disconnect_reason=static_cast<wifi_event_sta_disconnected_t*>(data)->reason;
+    }
 }
 static void reconnect_task(void*) {
     uint32_t pause=2;
     while(true) {
         if(!wifi_connected && !provisioning) {
-            esp_wifi_connect();pause=std::min<uint32_t>(60u,pause*2);
+            ++wifi_connect_attempts;
+            wifi_connect_error=static_cast<uint32_t>(esp_wifi_connect());
+            pause=std::min<uint32_t>(60u,pause*2);
         } else pause=2;
         vTaskDelay(pdMS_TO_TICKS(pause*1000));
     }
@@ -47,6 +53,9 @@ void start_wifi(const Profile& p) {
     std::memcpy(cfg.sta.password,p.wifi_password,std::strlen(p.wifi_password));
     cfg.sta.threshold.authmode=WIFI_AUTH_WPA2_PSK;
     cfg.sta.pmf_cfg.capable=true;
+    // Accept both SAE derivation methods for WPA3-Personal APs, as in the
+    // pinned ESP-IDF station example. WPA2 remains available where configured.
+    cfg.sta.sae_pwe_h2e=WPA3_SAE_PWE_BOTH;
     esp_sntp_config_t time_config=ESP_NETIF_SNTP_DEFAULT_CONFIG_MULTIPLE(2,
         ESP_SNTP_SERVER_LIST("time.cloudflare.com","pool.ntp.org"));
     time_config.start=false;

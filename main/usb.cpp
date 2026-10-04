@@ -45,7 +45,8 @@ void diagnostics() {
         "\"utc_synced\":%s,\"utc_ready\":%s,\"utc_epoch_s\":%lld,"
         "\"sntp_enabled\":%s,\"gateway\":\"" IPSTR "\",\"dns\":\"" IPSTR "\","
         "\"fleet_endpoint\":\"%s\",\"fleet_http_status\":%d,\"fleet_detail\":\"%s\",\"gps_source_value\":%.17g,\"gps_source_text\":\"%s\",\"fleet_txid\":\"%s\",\"fleet_date\":\"%s\",\"fleet_received_utc_s\":%lld,\"report_timestamp_text\":\"%s\",\"api_version\":%lld,"
-        "\"wifi_connected\":%s,\"ip\":\"" IPSTR "\",\"station_mac\":\"%02x:%02x:%02x:%02x:%02x:%02x\"}",
+        "\"wifi_connected\":%s,\"wifi_disconnect_reason\":%u,\"wifi_connect_error\":%u,\"wifi_connect_attempts\":%u,"
+        "\"ip\":\"" IPSTR "\",\"station_mac\":\"%02x:%02x:%02x:%02x:%02x:%02x\"}",
         read_name(raw),valid?"true":"false",read_name(marker),pending?"true":"false",
         token==Error::None?"usable":token==Error::Reauthorize?"missing_or_reauthorize":"error",
         provision_stage,static_cast<long long>(now_ms()/1000),int(esp_reset_reason()),
@@ -57,7 +58,8 @@ void diagnostics() {
         state.fleet.endpoint,state.fleet.http_status,state.fleet.detail,state.fleet.gps_source_value,state.fleet.gps_source_text,
         state.fleet.transaction_id,state.fleet.response_date,static_cast<long long>(state.fleet.received_utc_s),
         state.fleet.vehicle_metadata.report_timestamp_text,static_cast<long long>(state.fleet.vehicle_metadata.api_version),
-        wifi_connected?"true":"false",IP2STR(&ip.ip),mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
+        wifi_connected?"true":"false",unsigned(wifi_disconnect_reason.load()),unsigned(wifi_connect_error.load()),
+        unsigned(wifi_connect_attempts.load()),IP2STR(&ip.ip),mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
     mbedtls_platform_zeroize(&journal,sizeof journal);
     usb_serial_jtag_write_bytes(b,std::strlen(b),pdMS_TO_TICKS(1000));
     usb_serial_jtag_write_bytes("\n",1,pdMS_TO_TICKS(1000));
@@ -158,6 +160,21 @@ void process(const char* input) {
     bool ok=false;
     if(j.equal(op,"off")) {
         auto epoch=inhibit();current.config.disabled=true;ok=change_config(Change::Disabled,epoch);
+    } else if(j.equal(op,"wifi_update") && current.config.disabled && current.config.dry_run &&
+              !current.config.commissioned &&
+              j.equal(j.get(0,"confirmation"),"USB_WIFI_RECOVERY_KEEP_OUTPUT_OFF")) {
+        char ssid[33]={},wifi_password[65]={};
+        bool valid=j.string(j.get(0,"wifi_ssid"),ssid,sizeof ssid) &&
+            j.string(j.get(0,"wifi_password"),wifi_password,sizeof wifi_password) &&
+            std::strlen(ssid)>0 && std::strlen(wifi_password)>=8 && std::strlen(wifi_password)<=63;
+        if(valid && stop_network())ok=update_wifi(ssid,wifi_password,snapshot().generation);
+        mbedtls_platform_zeroize(ssid,sizeof ssid);
+        mbedtls_platform_zeroize(wifi_password,sizeof wifi_password);
+        if(ok) {
+            mbedtls_platform_zeroize(&current,sizeof current);
+            send("{\"ok\":true,\"committed\":true,\"rebooting\":true}");
+            usb_serial_jtag_wait_tx_done(pdMS_TO_TICKS(1000));vTaskDelay(pdMS_TO_TICKS(500));esp_restart();
+        }
     } else if(j.equal(op,"arm") && !critical_fault && !provisioning &&
               j.equal(j.get(0,"confirmation"),"USB_BENCH_POLARITY_AND_STARTUP_VERIFIED")) {
         auto epoch=inhibit();current.config.commissioned=true;current.config.disabled=true;

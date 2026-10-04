@@ -96,6 +96,35 @@ class ScanTests(unittest.TestCase):
         hidden.assert_not_called()
         self.assertFalse(json.loads(output.getvalue())["ok"])
 
+class WifiRecoveryTests(unittest.TestCase):
+    def test_usb_recovery_uses_hidden_prompts_and_preserves_other_secrets(self):
+        output = io.StringIO()
+        args = SimpleNamespace(command="wifi_update", port="SYNTHETIC_PORT")
+        with patch.object(onboard, "hidden", side_effect=["synthetic-admin-password", "synthetic-ssid", "synthetic-wifi-password"]), \
+             patch("builtins.input", return_value="USB_WIFI_RECOVERY_KEEP_OUTPUT_OFF"), \
+             patch.object(onboard, "usb_exchange", return_value={"ok": True, "committed": True}) as exchange, \
+             patch("sys.stdout", output):
+            onboard.usb(args)
+        exchange.assert_called_once()
+        request = exchange.call_args.args[1]
+        self.assertEqual(request["op"], "wifi_update")
+        self.assertEqual(request["wifi_ssid"], "synthetic-ssid")
+        self.assertEqual(request["wifi_password"], "synthetic-wifi-password")
+        self.assertNotIn("refresh_token", request)
+        self.assertNotIn("client_id", request)
+        self.assertNotIn("synthetic-admin-password", output.getvalue())
+        self.assertNotIn("synthetic-wifi-password", output.getvalue())
+
+    def test_invalid_wifi_recovery_does_not_write(self):
+        args = SimpleNamespace(command="wifi_update", port="SYNTHETIC_PORT")
+        with patch.object(onboard, "hidden", side_effect=["synthetic-admin-password", "synthetic-ssid", "short"]), \
+             patch("builtins.input", return_value="USB_WIFI_RECOVERY_KEEP_OUTPUT_OFF"), \
+             patch.object(onboard, "usb_exchange") as exchange, \
+             patch("sys.stdout", io.StringIO()):
+            with self.assertRaises(tesla.SetupError):
+                onboard.usb(args)
+        exchange.assert_not_called()
+
 class FilesTests(unittest.TestCase):
     def test_generated_public_tree_contains_no_private_keys(self):
         with tempfile.TemporaryDirectory() as tmp:

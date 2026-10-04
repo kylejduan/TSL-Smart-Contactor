@@ -32,6 +32,7 @@ extern std::atomic<bool> critical_fault, wifi_connected, utc_synced, provisionin
 extern std::atomic<bool> check_requested;
 extern std::atomic<const char*> fault_source;
 extern std::atomic<uint32_t> failed_allocation_bytes, control_max_gap_ms;
+extern std::atomic<uint32_t> wifi_disconnect_reason, wifi_connect_error, wifi_connect_attempts;
 void fail(const char* static_reason);
 Ms now_ms();
 Snapshot snapshot();

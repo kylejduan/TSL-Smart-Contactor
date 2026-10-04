@@ -111,6 +111,19 @@ def usb(args):
         if input("This bypasses Tesla presence. Type TIMED_ON to authorize: ") != "TIMED_ON":
             raise SetupError("Canceled.")
         request["seconds"] = args.seconds
+    if args.command == "wifi_update":
+        print("USB-only Wi-Fi recovery preserves the Tesla token and local HTTPS keys.")
+        print("Available only while uncommissioned, DISABLED and dry-run; output stays inhibited.")
+        phrase = "USB_WIFI_RECOVERY_KEEP_OUTPUT_OFF"
+        if input("Type " + phrase + ": ") != phrase:
+            raise SetupError("Canceled.")
+        request["confirmation"] = phrase
+        ssid = hidden("Wi-Fi SSID: ")
+        wifi = hidden("Wi-Fi password (WPA2/WPA3 personal): ")
+        if not 1 <= len(ssid.encode()) <= 32 or not 8 <= len(wifi.encode()) <= 63:
+            raise SetupError("Wi-Fi SSID/password length invalid.")
+        request["wifi_ssid"] = ssid
+        request["wifi_password"] = wifi
     result = usb_exchange(args.port, request)
     if args.command == "wifi_scan" and result.get("ok"):
         for network in result["networks"]:
@@ -126,7 +139,7 @@ def main():
     runtime.add_argument("--port", required=True)
     command = commands.add_parser("usb", help="Explicit USB management, no flashing")
     command.add_argument("--port", required=True)
-    command.add_argument("command", choices=["hello", "status", "diagnostics", "wifi_scan", "off", "auto", "timed_on", "arm", "enable_output", "reboot"])
+    command.add_argument("command", choices=["hello", "status", "diagnostics", "wifi_scan", "wifi_update", "off", "auto", "timed_on", "arm", "enable_output", "reboot"])
     command.add_argument("--seconds", type=int, default=3600)
     args = parser.parse_args()
     try:
@@ -136,7 +149,9 @@ def main():
     except Exception as exc:
         # Only our vetted messages may include detail; third-party exception strings
         # can contain URLs, credential payloads, certificate data or local paths.
-        print(str(exc) if isinstance(exc, SetupError) else "Setup failed; check local files/inputs. Sensitive details suppressed.", file=sys.stderr)
+        print(str(exc) if isinstance(exc, SetupError) else
+              f"Setup failed ({type(exc).__name__}); check local files/inputs. Sensitive details suppressed.",
+              file=sys.stderr)
         return 1
     except KeyboardInterrupt:
         print("Canceled; inspect USB status before repeating an uncertain handoff.", file=sys.stderr)

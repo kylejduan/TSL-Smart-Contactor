@@ -42,6 +42,26 @@ bool intact_profile(const Profile& p) {
 bool save_profile(Profile& p) {
     seal(p);return storage().write("profile",&p,sizeof p);
 }
+bool update_wifi(const char* ssid,const char* password,uint32_t epoch) {
+    if(!config_mutex || xSemaphoreTake(config_mutex,pdMS_TO_TICKS(5000))!=pdTRUE) {
+        fail("wifi_update_lock");return false;
+    }
+    static Profile p;
+    auto s=snapshot();
+    bool ok=s.generation==epoch && s.config.disabled && s.config.dry_run && !s.config.commissioned &&
+        load_profile(p)==ReadResult::Ok && p.config.disabled && p.config.dry_run && !p.config.commissioned;
+    if(ok) {
+        std::memset(p.ssid,0,sizeof p.ssid);
+        std::memset(p.wifi_password,0,sizeof p.wifi_password);
+        std::memcpy(p.ssid,ssid,std::strlen(ssid));
+        std::memcpy(p.wifi_password,password,std::strlen(password));
+        ok=save_profile(p);
+        if(!ok)fail("wifi_update_write");
+    }
+    mbedtls_platform_zeroize(&p,sizeof p);
+    xSemaphoreGive(config_mutex);
+    return ok;
+}
 bool password_hash(const char* pw,const uint8_t* salt,uint8_t* out) {
     // 100k PBKDF2-SHA256. Browser login computes this on the client for v2.
     return mbedtls_pkcs5_pbkdf2_hmac_ext(MBEDTLS_MD_SHA256,

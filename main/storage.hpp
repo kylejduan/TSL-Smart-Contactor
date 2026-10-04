@@ -15,6 +15,7 @@ private:
 NvsStore& storage();
 ReadResult load_profile(Profile&);
 bool save_profile(Profile&);
+bool update_wifi(const char* ssid,const char* password,uint32_t epoch);
 bool valid_profile(const Profile&);
 bool intact_profile(const Profile&);
 bool verify_password(const Profile&,const char* password);
