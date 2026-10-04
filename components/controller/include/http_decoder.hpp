@@ -1,6 +1,11 @@
 #pragma once
 #include "protocol.hpp"
+#include <cstdint>
+#include <string_view>
 namespace tsl {
+// Interpret the HTTP Retry-After field against UTC. Empty means no server hint;
+// malformed values get a conservative one-hour retry delay.
+uint32_t retry_after_seconds(std::string_view field,int64_t now_utc);
 // Strict bounded HTTP/1 response decoder used by the ESP TLS transport and tests.
 // Handles arbitrarily split headers/chunks without allocating or decompressing.
 class HttpDecoder {

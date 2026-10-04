@@ -1,5 +1,7 @@
 #include "test.hpp"
 #include "protocol.hpp"
+#include <cstdlib>
+#include <ctime>
 using namespace tsl;
 static std::string body(const std::string& fields) {
     return "{\"response\":{\"vin\":\"5YJ3E1EA7KF000001\",\"state\":\"online\",\"drive_state\":{"+fields+"}}}";
@@ -159,6 +161,28 @@ TEST(http_chunked_arbitrary_fragments_and_retry_after) {
     BodyBuffer d_body;HttpDecoder d(d_body);
     for(char c:wire)REQUIRE(d.feed(&c,1));
     REQUIRE(d.done());REQUIRE(d.status()==429);REQUIRE(d.body()=="{\"a\":1}");REQUIRE(std::string(d.retry_after())=="120");
+}
+TEST(http_retry_after_date_is_utc_and_strict) {
+    struct RestoreTimezone {
+        bool present=std::getenv("TZ")!=nullptr;
+        std::string previous=present ? std::getenv("TZ") : "";
+        ~RestoreTimezone() {
+            if(present)setenv("TZ",previous.c_str(),1);
+            else unsetenv("TZ");
+            tzset();
+        }
+    } restore;
+    setenv("TZ","America/Los_Angeles",1);tzset();
+    constexpr int64_t now=1735729200;
+    REQUIRE(retry_after_seconds("Wed, 01 Jan 2025 12:00:00 GMT",now)==3600);
+    REQUIRE(retry_after_seconds("120",now)==120);
+    REQUIRE(retry_after_seconds("999999999999999999",now)==86400);
+    REQUIRE(retry_after_seconds("",now)==0);
+    REQUIRE(retry_after_seconds("Wed, 01 Jan 2025 12:00:00 GMT",now+3480)==120);
+    REQUIRE(retry_after_seconds("Wed, 01 Jan 2025 12:00:00 GMT",now+7200)==0);
+    REQUIRE(retry_after_seconds("Wed, 01 Jan 2025 12:00:00 PST",now+3480)==3600);
+    REQUIRE(retry_after_seconds("Fri, 30 Feb 2026 06:15:38 GMT",now+3480)==3600);
+    REQUIRE(retry_after_seconds("+120",now+3480)==3600);
 }
 TEST(http_malformed_truncation_overflow_and_smuggling_rejected) {
     for(auto wire:{"HTTP/1.1 200 OK\r\nContent-Length: 20000\r\n\r\n",

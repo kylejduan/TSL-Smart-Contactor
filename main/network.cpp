@@ -10,7 +10,6 @@
 #include <algorithm>
 #include <cstring>
 #include <cstdio>
-#include <cstdlib>
 #include <ctime>
 namespace app {
 static_assert(CONFIG_LWIP_DNS_MAX_SERVERS>=2,
@@ -131,17 +130,7 @@ void request(Endpoint endpoint,const Config& cfg,const char* access,const char* 
         if(!decoder.done())r.error=Error::Malformed;
         else r.error=http_error(r.status);
     }
-    const char* retry=decoder.retry_after();
-    if(*retry) {
-        char* end=nullptr;unsigned long delay=std::strtoul(retry,&end,10);
-        if(end && !*end)r.retry_s=std::min(delay,86400ul);
-        else {
-            tm t{};
-            if(strptime(retry,"%a, %d %b %Y %H:%M:%S GMT",&t))
-                r.retry_s=std::clamp<int64_t>(mktime(&t)-time(nullptr),0,86400);
-            else r.retry_s=3600;
-        }
-    }
+    r.retry_s=retry_after_seconds(decoder.retry_after(),time(nullptr));
     esp_tls_conn_destroy(tls);
     mbedtls_platform_zeroize(header,sizeof header);
 }

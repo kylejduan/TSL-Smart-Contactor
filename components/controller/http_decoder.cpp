@@ -3,7 +3,40 @@
 #include <cctype>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 namespace tsl {
+uint32_t retry_after_seconds(std::string_view field,int64_t now_utc) {
+    if(field.empty())return 0;
+    bool numeric=true;
+    uint32_t seconds=0;
+    for(char c:field) {
+        if(c<'0' || c>'9') {numeric=false;break;}
+        seconds=std::min<uint32_t>(86400,seconds*10+uint32_t(c-'0'));
+    }
+    if(numeric)return seconds;
+    if(field.size()!=29)return 3600;
+    char wire[30]={};std::memcpy(wire,field.data(),field.size());
+    std::tm parsed{};
+    const char* end=strptime(wire,"%a, %d %b %Y %H:%M:%S GMT",&parsed);
+    if(!end || *end)return 3600;
+    char canonical[30]={};
+    if(std::strftime(canonical,sizeof canonical,"%a, %d %b %Y %H:%M:%S GMT",&parsed)!=29 ||
+       std::strcmp(canonical,wire)!=0)return 3600;
+    const int year=parsed.tm_year+1900,month=parsed.tm_mon;
+    if(year<1970 || year>2100 || month<0 || month>11 ||
+       parsed.tm_hour>23 || parsed.tm_min>59 || parsed.tm_sec>59)return 3600;
+    auto leap=[](int y) {return y%4==0 && (y%100!=0 || y%400==0);};
+    constexpr int month_days[]={31,28,31,30,31,30,31,31,30,31,30,31};
+    int days_in_month=month_days[month]+(month==1 && leap(year) ? 1 : 0);
+    if(parsed.tm_mday<1 || parsed.tm_mday>days_in_month)return 3600;
+    int64_t days=0;
+    for(int y=1970;y<year;++y)days+=leap(y) ? 366 : 365;
+    for(int m=0;m<month;++m)days+=month_days[m]+(m==1 && leap(year) ? 1 : 0);
+    days+=parsed.tm_mday-1;
+    if(parsed.tm_wday!=(days+4)%7)return 3600; // 1970-01-01 was Thursday.
+    int64_t absolute=days*86400+parsed.tm_hour*3600+parsed.tm_min*60+parsed.tm_sec;
+    return uint32_t(std::clamp<int64_t>(absolute-now_utc,0,86400));
+}
 bool HttpDecoder::line() {
     line_[line_size_]=0;
     std::string_view s(line_,line_size_);
