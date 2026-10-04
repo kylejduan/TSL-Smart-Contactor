@@ -30,7 +30,7 @@ public:
     Error revoke();
     void release() { busy_=false; }
     const char* current() const { return record_.current; }
-    bool needs_reauth() const { return record_.reauthorize; }
+    bool needs_reauth() const { return !loaded_ || record_.reauthorize; }
 private:
     bool save(TokenRecord& next);
     Store& store_;

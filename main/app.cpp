@@ -68,6 +68,10 @@ void network_status(uint32_t generation,Vehicle v,Error e,Ms last,Ms next,const 
     // Request reservations are global accounting, even while the user has OFF
     // selected. Vehicle evidence and its diagnostics belong to one generation.
     if(state.generation==generation)state.budget=b;
+    // A persisted revoked-token state must remain visible after a DISABLED boot,
+    // even though no vehicle request or location diagnostic is published there.
+    if(state.generation==generation && state.config.disabled && e==Error::Reauthorize)
+        state.error=e;
     if(state.generation==generation && !state.inhibited && !state.config.disabled) {
         state.vehicle=v;state.error=e;state.last_poll=last;state.next_poll=next;
         state.polling_paused=paused;state.fleet=diagnostic;

@@ -173,7 +173,15 @@ TEST(client_permission_rate_billing_server_and_malformed_failures) {
 TEST(client_revocation_persists_and_prevents_retry) {
     Fixture f;f.io.replies={{Endpoint::Refresh,401,"{\"error\":\"login_required\"}"}};
     auto o=fix(epoch);REQUIRE(f.client.poll(config(),1,o)==Error::Reauthorize);
+    REQUIRE(f.client.reauthorization_needed());
     REQUIRE(f.client.poll(config(),1,o)==Error::Reauthorize);REQUIRE(f.io.requests.size()==1);
+}
+TEST(missing_refresh_token_is_visible_without_a_fleet_request) {
+    StoreFake store;IO io;FleetClient client(store,io,"synthetic-client");
+    REQUIRE(client.initialize()==Error::Reauthorize);
+    REQUIRE(client.reauthorization_needed());
+    auto o=fix(epoch);REQUIRE(client.poll(config(),1,o)==Error::Reauthorize);
+    REQUIRE(io.requests.empty());
 }
 TEST(client_refresh_before_expiry_and_failed_storage_inhibit) {
     Fixture f;f.io.replies={{Endpoint::Refresh,200,token},{Endpoint::Status,200,asleep}};

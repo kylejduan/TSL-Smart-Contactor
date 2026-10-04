@@ -29,7 +29,9 @@ void worker(void* context) {
         auto s=snapshot();
         if(s.generation!=view_generation) {
             view_generation=s.generation;
-            vehicle=Vehicle::Unknown;error=Error::None;last_success=0;
+            vehicle=Vehicle::Unknown;
+            error=client.reauthorization_needed() ? Error::Reauthorize : Error::None;
+            last_success=0;
             client.clear_diagnostics();
         }
         if(check_requested.exchange(false))scheduler.check_now(now_ms());

@@ -39,6 +39,7 @@ public:
     Error refresh(const Config&);
     bool refresh_due() const {return access_until_>0 && access_until_<=io_.now();}
     Ms refresh_at() const {return access_until_;}
+    bool reauthorization_needed() const {return journal_.needs_reauth();}
     uint32_t retry_s() const {return retry_;}
     const BudgetRecord& counts() const {return budget_.counts();}
     void clear_diagnostics() {diagnostic_={};}
