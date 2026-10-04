@@ -160,8 +160,7 @@ void process(const char* input) {
     bool ok=false;
     if(j.equal(op,"off")) {
         auto epoch=inhibit();current.config.disabled=true;ok=change_config(Change::Disabled,epoch);
-    } else if(j.equal(op,"wifi_update") && current.config.disabled && current.config.dry_run &&
-              !current.config.commissioned &&
+    } else if(j.equal(op,"wifi_update") && current.config.disabled &&
               j.equal(j.get(0,"confirmation"),"USB_WIFI_RECOVERY_KEEP_OUTPUT_OFF")) {
         char ssid[33]={},wifi_password[65]={};
         bool valid=j.string(j.get(0,"wifi_ssid"),ssid,sizeof ssid) &&

@@ -166,7 +166,7 @@
     $('gps-note').textContent = gpsInvalid ? 'Reported position cannot renew AUTO.' : s.location_age_s >= 0 ? 'Source age at snapshot: ' + duration(s.location_age_s) : 'Waiting for qualifying source-time evidence.';
     const alert = s.fault ? 'Local fault: ' + readable(s.fault_source) + '. Output is inhibited. Use USB recovery.' :
       s.reauthorization_needed ? 'Tesla reauthorization or permission repair is needed. Use the USB helper; never replay an old token backup.' :
-      gpsInvalid ? 'Tesla supplied an invalid GPS timestamp. A position near home alone cannot authorize the outlet.' :
+      gpsInvalid ? 'The Fleet GPS source time cannot establish fix age. A position near home alone cannot authorize the outlet.' :
       s.mode === 'TIMED_ON' ? 'Timed ON is active and deliberately bypasses vehicle presence and connectivity.' :
       !s.commissioned ? 'Commissioning is incomplete. Complete the USB-only physical bench checks before arming.' : '';
     $('alert').textContent = alert; $('alert').hidden = !alert;

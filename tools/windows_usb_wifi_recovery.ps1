@@ -19,7 +19,7 @@ if ($SelfTest) {
     exit 0
 }
 Write-Host 'USB-only Wi-Fi recovery. Keep the branch circuit isolated and verified off.'
-Write-Host 'The controller must be uncommissioned, DISABLED and dry-run.'
+Write-Host 'The controller must be persistently DISABLED. On a commissioned unit, use authenticated USB OFF first.'
 Write-Host 'Enter the LOCAL administrator password and current 2.4 GHz Wi-Fi details only here.'
 Write-Host 'Tesla consent, token and local HTTPS keys are preserved. Output remains inhibited.'
 & $python (Join-Path $PSScriptRoot 'onboard.py') usb --port $Port wifi_update

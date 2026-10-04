@@ -113,7 +113,8 @@ def usb(args):
         request["seconds"] = args.seconds
     if args.command == "wifi_update":
         print("USB-only Wi-Fi recovery preserves the Tesla token and local HTTPS keys.")
-        print("Available only while uncommissioned, DISABLED and dry-run; output stays inhibited.")
+        print("Requires persisted DISABLED. On a commissioned unit, use authenticated USB OFF first.")
+        print("Commissioning and dry-run settings are preserved; output stays inhibited.")
         phrase = "USB_WIFI_RECOVERY_KEEP_OUTPUT_OFF"
         if input("Type " + phrase + ": ") != phrase:
             raise SetupError("Canceled.")

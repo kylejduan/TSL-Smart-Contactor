@@ -48,8 +48,8 @@ bool update_wifi(const char* ssid,const char* password,uint32_t epoch) {
     }
     static Profile p;
     auto s=snapshot();
-    bool ok=s.generation==epoch && s.config.disabled && s.config.dry_run && !s.config.commissioned &&
-        load_profile(p)==ReadResult::Ok && p.config.disabled && p.config.dry_run && !p.config.commissioned;
+    bool ok=s.generation==epoch && s.config.disabled &&
+        load_profile(p)==ReadResult::Ok && p.config.disabled;
     if(ok) {
         std::memset(p.ssid,0,sizeof p.ssid);
         std::memset(p.wifi_password,0,sizeof p.wifi_password);
