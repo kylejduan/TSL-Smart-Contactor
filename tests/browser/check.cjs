@@ -41,6 +41,34 @@ const fs = require('node:fs/promises');
       await waitText('status', 'GPS acquisition time');
       assert.equal(await page.locator('#events li').count(), 1);
     });
+    await run('password limits use UTF-8 bytes and reject invalid lengths before login requests', async () => {
+      const loginRequests = [];
+      const observe = r => { if (['/api/login', '/api/login-info'].includes(new URL(r.url()).pathname)) loginRequests.push(r.url()); };
+      page.on('request', observe);
+      try {
+        await fixture({ reset: true }); await page.goto(origin);
+        await page.locator('#login').waitFor({ state: 'visible' });
+        for (const password of ['é'.repeat(7), 'é'.repeat(65)]) {
+          const before = loginRequests.length;
+          await page.locator('#password').fill(password); await page.locator('#sign-in').click();
+          await waitText('message', '16–128 UTF-8 bytes');
+          assert.equal(loginRequests.length, before);
+          assert.equal(await page.locator('#password').inputValue(), '');
+          assert.equal(await page.locator('#sign-in').isEnabled(), true);
+        }
+        for (const password of ['é'.repeat(8), 'é'.repeat(64)]) {
+          await fixture({ reset: true, password }); await page.goto(origin);
+          await page.locator('#login').waitFor({ state: 'visible' });
+          const before = loginRequests.length;
+          await page.locator('#password').fill(password); await page.locator('#sign-in').click();
+          await page.locator('#controls').waitFor({ state: 'visible' });
+          await page.waitForFunction(() => !document.getElementById('refresh').disabled);
+          assert.equal(loginRequests.length - before, 2);
+          assert.equal((await read()).login_type, 'material');
+          assert.equal(await page.locator('#password').inputValue(), '');
+        }
+      } finally { page.off('request', observe); }
+    });
     await run('countdowns never cause background requests', async () => {
       const before = (await read()).requests.length;
       await page.waitForTimeout(2200); assert.equal((await read()).requests.length, before);

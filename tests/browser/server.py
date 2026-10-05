@@ -47,6 +47,7 @@ class Fixture:
         self.action_delay = 0
         self.events_fail = False
         self.login_type = None
+        self.login_material = MATERIAL
 
 FIXTURE = Fixture()
 
@@ -94,12 +95,15 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == '/__test':
                 if body.pop('reset',False):FIXTURE.reset()
                 FIXTURE.state.update(body.pop('state',{}))
+                if 'password' in body:
+                    # Synthetic test-only credential; never part of firmware.
+                    FIXTURE.login_material = hashlib.pbkdf2_hmac('sha256', body['password'].encode('utf-8'), SALT, 100000).hex()
                 for key in ['auth','status_delay','action_delay','events_fail']:
                     if key in body:setattr(FIXTURE,key,body[key])
                 return self.send(dict(ok=True))
             if self.path == '/api/login':
                 FIXTURE.login_type = 'material' if 'material' in body else 'password'
-                if body.get('material')!=MATERIAL:return self.send(dict(error='login_failed'),401)
+                if body.get('material')!=FIXTURE.login_material:return self.send(dict(error='login_failed'),401)
                 FIXTURE.auth=True
                 return self.send(dict(ok=True))
             action=body.get('action');FIXTURE.requests.append(action)

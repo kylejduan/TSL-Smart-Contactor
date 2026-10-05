@@ -54,13 +54,17 @@
   let csrf = '', state = null, events = [], receivedAt = 0, dirty = false;
   let epoch = 0, refreshId = 0, pending = false, loginPending = false;
   let eventAvailable = false;
-  async function loginMaterial(password, saltHex, iterations) {
-    if (!crypto.subtle || !/^[0-9a-f]{32}$/.test(saltHex) || iterations !== 100000)
-      throw Error('Trusted HTTPS and valid controller login parameters are required.');
+  function passwordBytes(password) {
     const secret = new TextEncoder().encode(password);
     if (secret.length < 16 || secret.length > 128) {
       secret.fill(0); throw Error('Password must be 16–128 UTF-8 bytes.');
     }
+    return secret;
+  }
+  async function loginMaterial(password, saltHex, iterations) {
+    if (!crypto.subtle || !/^[0-9a-f]{32}$/.test(saltHex) || iterations !== 100000)
+      throw Error('Trusted HTTPS and valid controller login parameters are required.');
+    const secret = passwordBytes(password);
     const salt = Uint8Array.from(saltHex.match(/../g), pair => parseInt(pair, 16));
     try {
       const key = await crypto.subtle.importKey('raw', secret, 'PBKDF2', false, ['deriveBits']);
@@ -297,15 +301,19 @@
     e.preventDefault(); if (loginPending) return;
     loginPending = true; $('sign-in').disabled = true; message('Verifying password…');
     try {
+      // The helper and firmware bound UTF-8 bytes, not HTML/UTF-16 length.
+      // Validate before either login request, including the v1 migration path.
+      const password = $('password').value;
+      const encoded = passwordBytes(password); encoded.fill(0);
       const info = await call('/api/login-info');
       if (![1, 2].includes(info.version) || !/^[0-9a-f]{32}$/.test(info.salt) || info.iterations !== 100000)
         throw Error('Controller login parameters are invalid.');
       let credential;
       if (info.version === 1) {
         message('Updating password verifier on this first sign-in; allow about 10 seconds.');
-        credential = { password: $('password').value };
+        credential = { password };
       } else {
-        credential = { material: await loginMaterial($('password').value, info.salt, info.iterations) };
+        credential = { material: await loginMaterial(password, info.salt, info.iterations) };
       }
       await call('/api/login', credential, 30000);
       credential = null;

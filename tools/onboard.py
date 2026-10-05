@@ -69,7 +69,7 @@ def run(root, port):
     lon = coordinate("Home longitude (decimal degrees): ", 180)
     ssid = hidden("Wi-Fi SSID: ")
     wifi = hidden("Wi-Fi password (WPA2/WPA3 personal): ")
-    admin = hidden("New local administrator password (16-128 characters): ")
+    admin = hidden("New local administrator password (16-128 UTF-8 bytes): ")
     if admin != hidden("Repeat administrator password: ") or not 16 <= len(admin.encode()) <= 128:
         raise SetupError("Administrator password mismatch or invalid length.")
     if not 1 <= len(ssid.encode()) <= 32 or not 8 <= len(wifi.encode()) <= 63:

@@ -5,6 +5,11 @@ by the ESP32; there are no CDNs, map providers, external fonts, telemetry script
 service workers or browser credential storage. The per-device certificate and
 local CA are generated during USB preparation. Port 80 is not served.
 
+Administrator passwords use the same 16–128 UTF-8-byte limit during USB setup and
+browser login. ASCII characters use one byte each; accented characters and emoji
+can use more. The browser checks the encoded length before sending a login request.
+This does not change the password hashing or authentication rate limits.
+
 ## Reading the dashboard
 
 - **ON commanded / OFF commanded** is the last recorded GPIO command, never proof
