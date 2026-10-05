@@ -208,3 +208,139 @@ TEST(version_one_padding_cannot_opt_into_report_policy) {
     auto c=config();c.position_basis=2;REQUIRE(!valid_config(c));
     c=config();c.version=3;REQUIRE(!valid_config(c));
 }
+TEST(repeated_week_long_outages_recover_across_32bit_millisecond_boundary) {
+    const Ms boot=Ms(std::numeric_limits<uint32_t>::max())-600000;
+    constexpr int64_t week_s=7*86400;
+    Policy p(boot);p.configure(config(),1,boot);
+    ClockGuard clock;uint64_t request=0;
+    // Eight recoveries span 49 days, including the common 32-bit uptime boundary.
+    // Only fresh GPS on a usable clock may recover AUTO after each expired lease.
+    for(int cycle=0;cycle<8;++cycle) {
+        const auto utc=epoch+cycle*week_s;
+        const Ms now=boot+Ms(cycle)*week_s*1000;
+        REQUIRE(clock.update(now,utc,true));REQUIRE(!clock.jumped());
+        p.observe(fix(utc,++request),now,utc,true);
+        REQUIRE(p.tick(now).auto_home);REQUIRE(p.tick(now).lease_left==900000);
+        if(cycle==0)REQUIRE(!p.tick(now+29999).commanded);
+        REQUIRE(p.tick(now+30000).commanded);
+        // A duplicate, a failed poll, and a fresh-looking reply before time
+        // readiness returns must not replace the original monotonic deadline.
+        p.observe(fix(utc,++request),now+600000,utc+600,true);
+        auto unavailable=fix(utc+700,++request);unavailable.kind=Evidence::Unknown;
+        unavailable.vehicle=Vehicle::Offline;p.observe(unavailable,now+700000,utc+700,true);
+        p.observe(fix(utc+800,++request),now+800000,utc+800,false);
+        REQUIRE(p.tick(now+899999).commanded);
+        REQUIRE(!p.tick(now+900000).commanded);
+        auto asleep=fix(utc,++request);asleep.kind=Evidence::Asleep;asleep.vehicle=Vehicle::Asleep;
+        p.observe(asleep,now+901000,utc+901,true);
+        REQUIRE(!p.tick(now+901000).auto_home);
+        p.observe(fix(utc+6*86400,++request),now+Ms(6)*86400000,utc+6*86400,false);
+        REQUIRE(!p.tick(now+Ms(6)*86400000).commanded);
+        REQUIRE(p.tick(now+Ms(6)*86400000).last_source_s==utc);
+    }
+}
+TEST(power_loss_restarts_off_and_does_not_restore_sleep_or_override_authorization) {
+    const auto persisted=config();
+    for(uint32_t boot=1;boot<=4;++boot) {
+        const int64_t utc=epoch+int64_t(boot)*86400;
+        Policy p;p.configure(persisted,boot,0);
+        // A successful sleeping response after reboot is not location evidence.
+        auto asleep=fix(utc-60,1,0,boot);asleep.kind=Evidence::Asleep;asleep.vehicle=Vehicle::Asleep;
+        p.observe(asleep,1000,utc+1,true);
+        REQUIRE(!p.tick(1000).auto_home);REQUIRE(!p.tick(1000).timed);
+        REQUIRE(!p.tick(1000).commanded);
+        p.observe(fix(utc+2,2,0,boot),2000,utc+2,true);
+        REQUIRE(p.tick(2000).auto_home);REQUIRE(!p.tick(29999).commanded);
+        REQUIRE(p.tick(30000).commanded);
+        REQUIRE(p.timed_on(28800,30000));REQUIRE(p.tick(30000).timed);
+        // Only the configuration is carried to the next simulated power-up.
+    }
+    auto disabled=persisted;disabled.disabled=true;
+    Policy reboot;reboot.configure(disabled,9,0);
+    reboot.observe(fix(epoch+5*86400,1,0,9),30000,epoch+5*86400,true);
+    REQUIRE(reboot.tick(30000).reason==Reason::Disabled);
+    REQUIRE(!reboot.tick(30000).auto_home);REQUIRE(!reboot.timed_on(3600,30000));
+    auto uncommissioned=persisted;uncommissioned.commissioned=false;
+    Policy bench;bench.configure(uncommissioned,10,0);
+    bench.observe(fix(epoch+6*86400,1,0,10),30000,epoch+6*86400,true);
+    REQUIRE(bench.tick(30000).reason==Reason::Uncommissioned);
+    REQUIRE(!bench.tick(30000).commanded);REQUIRE(!bench.timed_on(3600,30000));
+}
+TEST(clock_reacquisition_and_jumps_never_extend_a_running_override) {
+    Policy p;p.configure(config(),1,0);ClockGuard clock;
+    REQUIRE(clock.update(0,epoch,true));p.observe(fix(epoch),0,epoch,true);
+    REQUIRE(p.timed_on(3600,0));REQUIRE(p.tick(30000).commanded);
+    REQUIRE(!clock.update(600000,epoch+600,false));REQUIRE(clock.jumped());
+    p.clock_discontinuity(600000);
+    REQUIRE(!p.tick(600000).auto_home);REQUIRE(p.tick(600000).override_left==3000000);
+    REQUIRE(clock.update(601000,epoch+601,true));
+    auto asleep=fix(epoch,2);asleep.kind=Evidence::Asleep;asleep.vehicle=Vehicle::Asleep;
+    p.observe(asleep,601000,epoch+601,true);REQUIRE(!p.tick(601000).auto_home);
+    p.observe(fix(epoch+602,3),602000,epoch+602,true);
+    REQUIRE(p.tick(602000).auto_home);
+    // A large forward correction and its reversal each invalidate AUTO;
+    // neither changes the explicit override's monotonic expiry at t=3600.
+    REQUIRE(!clock.update(603000,epoch+4203,true));REQUIRE(clock.jumped());
+    p.clock_discontinuity(603000);REQUIRE(!p.tick(603000).auto_home);
+    REQUIRE(clock.update(604000,epoch+4204,true));
+    asleep.request=4;p.observe(asleep,604000,epoch+4204,true);
+    REQUIRE(!p.tick(604000).auto_home);
+    REQUIRE(!clock.update(605000,epoch+605,true));REQUIRE(clock.jumped());
+    p.clock_discontinuity(605000);
+    REQUIRE(p.tick(605000).override_left==2995000);
+    REQUIRE(p.tick(3599999).commanded);REQUIRE(!p.tick(3600000).commanded);
+    REQUIRE(!p.tick(3600000).timed);REQUIRE(!p.tick(3600000).auto_home);
+}
+TEST(critical_fault_cannot_be_cleared_by_configuration_or_new_evidence) {
+    Policy p;p.configure(config(),1,0);p.observe(fix(epoch),0,epoch,true);
+    REQUIRE(p.tick(30000).commanded);p.fault(31000);
+    p.configure(config(),2,32000);
+    p.observe(fix(epoch+33,1,0,2),33000,epoch+33,true);
+    REQUIRE(p.tick(33000).reason==Reason::Fault);
+    REQUIRE(!p.tick(33000).auto_home);REQUIRE(!p.timed_on(3600,33000));
+    REQUIRE(!p.tick(86400000).commanded);
+    // Reboot may recover a transient local failure, but authorization still
+    // starts empty and requires fresh evidence plus the complete boot dwell.
+    Policy reboot;reboot.configure(config(),3,0);
+    REQUIRE(!reboot.tick(0).auto_home);
+    reboot.observe(fix(epoch+86400,1,0,3),0,epoch+86400,true);
+    REQUIRE(!reboot.tick(29999).commanded);REQUIRE(reboot.tick(30000).commanded);
+}
+TEST(ntp_only_outage_bounds_new_evidence_without_extending_or_canceling_existing_deadlines) {
+    for(uint32_t sync:{uint32_t(0),std::numeric_limits<uint32_t>::max()-1000}) {
+        const Ms boot=Ms(sync)*1000;
+        auto now=[&](uint32_t elapsed) {return boot+Ms(elapsed)*1000;};
+        auto ready=[&](uint32_t elapsed,uint32_t last_sync,bool synchronized=true) {
+            return recent_utc_sync(uint32_t(now(elapsed)/1000),last_sync,synchronized);
+        };
+        Policy p(boot);p.configure(config(),1,boot);
+        const auto home_at=kUtcSyncMaxAgeS-1,stale_at=kUtcSyncMaxAgeS+1;
+        REQUIRE(!ready(0,sync,false));REQUIRE(ready(kUtcSyncMaxAgeS,sync));
+        p.observe(fix(epoch+home_at),now(home_at),epoch+home_at,ready(home_at,sync));
+        REQUIRE(p.tick(now(home_at)).commanded);
+        REQUIRE(!ready(stale_at,sync));
+        p.observe(fix(epoch+stale_at,2),now(stale_at),epoch+stale_at,ready(stale_at,sync));
+        REQUIRE(p.tick(now(stale_at)).lease_left==898000);
+        auto asleep=fix(epoch+stale_at,3);asleep.kind=Evidence::Asleep;asleep.vehicle=Vehicle::Asleep;
+        p.observe(asleep,now(stale_at),epoch+stale_at,ready(stale_at,sync));
+        REQUIRE(p.tick(now(stale_at)).lease_left==898000);
+        const auto expired_at=home_at+900;
+        REQUIRE(p.tick(now(expired_at)-1).commanded);
+        REQUIRE(!p.tick(now(expired_at)).commanded);
+        const auto resync_at=expired_at+1;
+        const auto new_sync=uint32_t(now(resync_at)/1000);
+        REQUIRE(ready(resync_at,new_sync));
+        p.observe(fix(epoch+resync_at,4),now(resync_at),epoch+resync_at,ready(resync_at,new_sync));
+        REQUIRE(p.tick(now(resync_at)).auto_home);
+        REQUIRE(!p.tick(now(expired_at+30)-1).commanded);
+        REQUIRE(p.tick(now(expired_at+30)).commanded);
+
+        Policy manual(boot);manual.configure(config(),1,boot);
+        REQUIRE(manual.timed_on(3600,now(home_at)));
+        manual.observe(fix(epoch+stale_at),now(stale_at),epoch+stale_at,ready(stale_at,sync));
+        REQUIRE(!manual.tick(now(stale_at)).auto_home);
+        REQUIRE(manual.tick(now(stale_at)).override_left==3598000);
+        REQUIRE(manual.tick(now(home_at+3600)-1).commanded);
+        REQUIRE(!manual.tick(now(home_at+3600)).commanded);
+    }
+}

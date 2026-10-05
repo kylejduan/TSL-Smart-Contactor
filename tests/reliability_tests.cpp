@@ -37,8 +37,11 @@ TEST(power_loss_before_during_and_after_rotation_commit) {
 }
 TEST(lost_refresh_response_recovery_is_bounded_and_corruption_explicit) {
     Memory store;TokenJournal j(store);j.provision("old");
-    for(int i=0;i<3;++i) {TokenJournal r(store);REQUIRE(r.load()==Error::None);REQUIRE(r.begin(epoch+i*100)==Error::None);}
-    TokenJournal exhausted(store);REQUIRE(exhausted.load()==Error::None);REQUIRE(exhausted.begin(epoch+300)==Error::Reauthorize);
+    for(uint32_t i=0;i<kRefreshRecoveryAttempts;++i) {
+        TokenJournal r(store);REQUIRE(r.load()==Error::None);REQUIRE(r.begin(epoch+i*100)==Error::None);
+    }
+    TokenJournal exhausted(store);REQUIRE(exhausted.load()==Error::None);
+    REQUIRE(exhausted.begin(epoch+kRefreshRecoveryAttempts*100)==Error::Reauthorize);
     TokenJournal revoked(store);REQUIRE(revoked.load()==Error::Reauthorize);
     store.records["tokens"][8]^=1;TokenJournal corrupt(store);REQUIRE(corrupt.load()==Error::Storage);
     Memory other;TokenJournal timeout(other);timeout.provision("old");timeout.begin(epoch);timeout.release();
@@ -55,7 +58,10 @@ TEST(unsent_refresh_preserves_prior_rotation_attempts_and_original_ceiling) {
     TokenJournal retry(store);REQUIRE(retry.load()==Error::None);
     REQUIRE(retry.begin(epoch+600)==Error::None);retry.release();
     REQUIRE(retry.begin(epoch+660)==Error::None);retry.release();
-    REQUIRE(retry.begin(epoch+720)==Error::Reauthorize); // Still only three sent attempts.
+    for(uint32_t i=3;i<kRefreshRecoveryAttempts;++i) {
+        REQUIRE(retry.begin(epoch+720+i)==Error::None);retry.release();
+    }
+    REQUIRE(retry.begin(epoch+800)==Error::Reauthorize); // Unsent intents did not consume attempts.
 
     Memory other;TokenJournal original(other);REQUIRE(original.provision("old")==Error::None);
     REQUIRE(original.begin(epoch)==Error::None);original.release();
@@ -71,6 +77,9 @@ TEST(power_loss_or_storage_failure_during_unsent_restore_stays_conservative) {
     TokenJournal before_commit(store);REQUIRE(before_commit.load()==Error::None);
     REQUIRE(before_commit.begin(epoch+60)==Error::None);before_commit.release();
     REQUIRE(before_commit.begin(epoch+120)==Error::None);before_commit.release();
+    for(uint32_t i=3;i<kRefreshRecoveryAttempts;++i) {
+        REQUIRE(before_commit.begin(epoch+120+i)==Error::None);before_commit.release();
+    }
     REQUIRE(before_commit.begin(epoch+180)==Error::Reauthorize);
 
     Memory other;TokenJournal after_commit(other);REQUIRE(after_commit.provision("old")==Error::None);
@@ -101,6 +110,20 @@ TEST(monthly_data_allowance_limits_location_reservations_across_reboot) {
     REQUIRE(reboot.take(Endpoint::Status,100,20,10000,12000)==Error::None);
     REQUIRE(reboot.take(Endpoint::Location,101,21,10000,12000)==Error::None);
 }
+TEST(budget_period_rollover_discards_old_credit_without_resetting_month_early) {
+    Memory store;Budget budget(store);REQUIRE(budget.load()==Error::None);
+    REQUIRE(budget.take(Endpoint::Location,100,20,4,8)==Error::None);
+    REQUIRE(budget.take(Endpoint::Location,101,20,4,8)==Error::None);
+    REQUIRE(budget.counts().daily[1]==4);REQUIRE(budget.counts().monthly[1]==8);
+    REQUIRE(budget.take(Endpoint::Location,102,20,4,8)==Error::Budget);
+    REQUIRE(budget.take(Endpoint::Location,102,21,4,8)==Error::None);
+    REQUIRE(budget.counts().daily[1]==4);REQUIRE(budget.counts().monthly[1]==4);
+    REQUIRE(budget.take(Endpoint::Location,101,20,4,8)==Error::Clock);
+    Budget reboot(store);REQUIRE(reboot.load()==Error::None);
+    REQUIRE(reboot.take(Endpoint::Location,102,21,4,8)==Error::Budget);
+    REQUIRE(reboot.take(Endpoint::Location,103,21,4,8)==Error::None);
+    REQUIRE(reboot.counts().monthly[1]==8);
+}
 TEST(scheduler_single_flight_manual_backoff_retryafter_and_permanent_pause) {
     Scheduler s;REQUIRE(s.begin(0));REQUIRE(!s.begin(0));REQUIRE(!s.check_now(0));
     s.finish(10,Error::RateLimit,600,500,0);REQUIRE(!s.due(500009));REQUIRE(!s.check_now(60000));
@@ -112,6 +135,29 @@ TEST(manual_check_has_ten_minute_cooldown) {
     Scheduler s;REQUIRE(s.check_now(0));REQUIRE(s.begin(0));
     s.finish(1,Error::None,600,0,0);
     REQUIRE(!s.check_now(599999));REQUIRE(s.check_now(600000));
+}
+TEST(billing_pause_resumes_only_in_a_new_month_and_preserves_retry_after) {
+    constexpr Ms uptime=Ms(100)*86400000; // Beyond 32-bit milliseconds.
+    Scheduler s;s.calendar_month(24321,uptime);REQUIRE(s.check_now(uptime));
+    REQUIRE(s.begin(uptime));s.finish(uptime+1,Error::Billing,600,900,0);
+    REQUIRE(s.paused());s.calendar_month(24321,uptime+1000);
+    s.calendar_month(24320,uptime+1000);REQUIRE(s.paused());
+    s.calendar_month(0,uptime+1000);REQUIRE(s.paused());
+    s.calendar_month(24322,uptime+1000);REQUIRE(!s.paused());
+    REQUIRE(!s.due(uptime+900000));REQUIRE(!s.check_now(uptime+900000));
+    REQUIRE(s.begin(uptime+900001));s.finish(uptime+900002,Error::None,600,0,0);
+    REQUIRE(!s.due(uptime+1500001));REQUIRE(s.due(uptime+1500002));
+}
+TEST(calendar_changes_never_resume_other_permanent_failures_or_an_unknown_cycle) {
+    for(auto error:{Error::Reauthorize,Error::Permission,Error::Authentication,
+                    Error::Redirect,Error::Storage}) {
+        Scheduler s;s.calendar_month(24321,0);REQUIRE(s.begin(0));
+        s.finish(1,error,600,0,0);s.calendar_month(24322,86400000);
+        REQUIRE(s.paused());REQUIRE(!s.due(86400000));
+    }
+    Scheduler missing;REQUIRE(missing.begin(0));missing.finish(1,Error::Billing,600,0,0);
+    missing.calendar_month(24321,86400000);REQUIRE(missing.paused());
+    missing.calendar_month(24322,86400001);REQUIRE(!missing.paused());
 }
 TEST(session_requires_auth_csrf_expiry_and_login_throttle) {
     Session s;std::string id(64,'a'),csrf(64,'b');

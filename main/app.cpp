@@ -16,6 +16,7 @@ std::atomic<bool> critical_fault{false},wifi_connected{false},utc_synced{false},
 std::atomic<bool> check_requested{false};
 std::atomic<const char*> fault_source{nullptr};
 std::atomic<uint32_t> failed_allocation_bytes{0},control_max_gap_ms{0};
+std::atomic<uint32_t> utc_last_sync_uptime_s{0};
 std::atomic<uint32_t> wifi_disconnect_reason{0},wifi_connect_error{0},wifi_connect_attempts{0};
 void fail(const char* reason) {
     const char* empty=nullptr;
@@ -100,7 +101,10 @@ void network_status(uint32_t generation,Vehicle v,Error e,Ms last,Ms next,const 
     portEXIT_CRITICAL(&lock);
 }
 static void allocation_failed(size_t size,uint32_t,const char*) {
-    failed_allocation_bytes=static_cast<uint32_t>(size);fail("allocation_failed");
+    // A rejected TLS connection/login allocation is a recoverable request
+    // failure, not evidence that the control path is broken. Its caller must
+    // check the error; startup, task, storage and GPIO failures still fail OFF.
+    failed_allocation_bytes=static_cast<uint32_t>(size);
 }
 static void setup(void*) {
     static Profile profile;
@@ -158,7 +162,8 @@ extern "C" void app_main() {
         // Keep an existing monotonic lease through a brief Wi-Fi outage, but
         // require a new SNTP sync before admitting another location fix.
         bool time_ok=clock.update(now,time(nullptr),utc_continuity);
-        bool evidence_time_ok=time_ok && utc_synced && wifi_connected;
+        bool evidence_time_ok=time_ok && wifi_connected &&
+            recent_utc_sync(static_cast<uint32_t>(now/1000),utc_last_sync_uptime_s,utc_synced);
         if(clock.jumped())policy.clock_discontinuity(now);
         if(critical_fault)policy.fault(now);
         Observation o;

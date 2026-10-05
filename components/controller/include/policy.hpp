@@ -75,6 +75,10 @@ private:
     bool home_ = false, commanded_ = false, fault_ = false, configured_ = false;
     double distance_ = -1;
 };
+// Limit new evidence/TLS admission during NTP-only outages. This is separate
+// from clock continuity and never changes an existing monotonic deadline.
+constexpr uint32_t kUtcSyncMaxAgeS = 6*60*60;
+bool recent_utc_sync(uint32_t now_uptime_s,uint32_t last_sync_uptime_s,bool synchronized);
 // UTC becomes usable only after an SNTP sync; subsequent discontinuities invalidate
 // evidence. No wall-clock value is ever used as a running lease deadline.
 class ClockGuard {

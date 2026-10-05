@@ -42,7 +42,7 @@ void diagnostics() {
         "\"token_state\":\"%s\",\"provision_stage\":\"%s\",\"uptime_s\":%lld,\"reset_reason\":%d,"
         "\"usb_stack_min_bytes\":%u,\"internal_heap_free\":%u,\"internal_heap_largest\":%u,"
         "\"fault_source\":\"%s\",\"failed_allocation_bytes\":%u,\"control_max_gap_ms\":%u,"
-        "\"utc_synced\":%s,\"utc_ready\":%s,\"utc_epoch_s\":%lld,"
+        "\"utc_synced\":%s,\"utc_ready\":%s,\"utc_epoch_s\":%lld,\"utc_sync_age_s\":%lld,"
         "\"sntp_enabled\":%s,\"gateway\":\"" IPSTR "\",\"dns\":\"" IPSTR "\","
         "\"fleet_endpoint\":\"%s\",\"fleet_http_status\":%d,\"fleet_detail\":\"%s\",\"gps_source_value\":%.17g,\"gps_source_text\":\"%s\",\"fleet_txid\":\"%s\",\"fleet_date\":\"%s\",\"fleet_received_utc_s\":%lld,\"report_timestamp_text\":\"%s\",\"api_version\":%lld,"
         "\"wifi_connected\":%s,\"wifi_disconnect_reason\":%u,\"wifi_connect_error\":%u,\"wifi_connect_attempts\":%u,"
@@ -54,6 +54,7 @@ void diagnostics() {
         unsigned(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)),cause?cause:"none",
         unsigned(failed_allocation_bytes.load()),unsigned(control_max_gap_ms.load()),
         utc_synced?"true":"false",state.utc_ok?"true":"false",static_cast<long long>(time(nullptr)),
+        utc_continuity ? static_cast<long long>(static_cast<uint32_t>(now_ms()/1000)-utc_last_sync_uptime_s.load()) : -1LL,
         esp_sntp_enabled()?"true":"false",IP2STR(&ip.gw),IP2STR(&dns.ip.u_addr.ip4),
         state.fleet.endpoint,state.fleet.http_status,state.fleet.detail,state.fleet.gps_source_value,state.fleet.gps_source_text,
         state.fleet.transaction_id,state.fleet.response_date,static_cast<long long>(state.fleet.received_utc_s),

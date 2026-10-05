@@ -30,6 +30,9 @@ Error FleetClient::account(Endpoint endpoint,const Config& cfg) {
     return budget_.take(endpoint,utc/86400,(t.tm_year+1900)*12+t.tm_mon+1,cfg.daily_cap,cfg.monthly_cap);
 }
 Error FleetClient::refresh(const Config& cfg) {
+    // Also called independently between polls. Retry-After belongs to this
+    // operation; a previous response must not postpone an unrelated later retry.
+    retry_=0;
     auto e=account(Endpoint::Refresh,cfg);
     if(e!=Error::None)return e;
     e=journal_.begin(io_.utc());
@@ -86,7 +89,9 @@ Error FleetClient::get(Endpoint endpoint,const Config& cfg,Observation& o) {
         retry_=std::max(retry_,result.retry_s);
         if(result.error==Error::Authentication && attempt==0) {
             if(!io_.current(o.generation))return Error::Unavailable;
-            e=refresh(cfg);if(e!=Error::None)return e;
+            const auto request_retry=retry_;
+            e=refresh(cfg);retry_=std::max(retry_,request_retry);
+            if(e!=Error::None)return e;
             continue;
         }
         if(result.error!=Error::None)return result.error;

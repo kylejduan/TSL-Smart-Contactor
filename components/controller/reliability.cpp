@@ -5,7 +5,8 @@ Error TokenJournal::load() {
     auto r=store_.read("tokens",&record_,sizeof record_);
     if(r==ReadResult::Missing)return Error::Reauthorize;
     if(r!=ReadResult::Ok || !intact(record_) || record_.current[2048] || record_.previous[2048] ||
-       !record_.current[0] || record_.attempts>3 || record_.pending>1 || record_.reauthorize>1)
+       !record_.current[0] || record_.attempts>kRefreshRecoveryAttempts ||
+       record_.pending>1 || record_.reauthorize>1)
         return Error::Storage;
     loaded_=true;
     return record_.reauthorize ? Error::Reauthorize : Error::None;
@@ -24,7 +25,7 @@ Error TokenJournal::begin(int64_t utc) {
     if(!loaded_ || record_.reauthorize)return Error::Reauthorize;
     if(busy_)return Error::Authentication;
     if(utc<1704067200LL)return Error::Clock;
-    if(record_.pending && (record_.attempts>=3 || utc<record_.uncertain_since ||
+    if(record_.pending && (record_.attempts>=kRefreshRecoveryAttempts || utc<record_.uncertain_since ||
                           utc-record_.uncertain_since>=86400))return revoke();
     auto r=record_;
     if(!r.pending) {r.uncertain_since=utc;r.attempts=0;}
@@ -87,9 +88,14 @@ bool Scheduler::begin(Ms now) {
 }
 void Scheduler::finish(Ms now,Error e,uint32_t poll,uint32_t retry,uint32_t random) {
     busy_=false;
-    if(e==Error::None) {failures_=0;embargo_=0;next_=now+Ms(poll)*1000;return;}
+    if(e==Error::None) {
+        paused_=false;pause_reason_=Error::None;
+        failures_=0;embargo_=0;next_=now+Ms(poll)*1000;return;
+    }
     if(e==Error::Reauthorize || e==Error::Permission || e==Error::Billing ||
-       e==Error::Redirect || e==Error::Storage || e==Error::Authentication)paused_=true;
+       e==Error::Redirect || e==Error::Storage || e==Error::Authentication) {
+        paused_=true;pause_reason_=e;
+    }
     failures_=std::min(failures_+1,7u);
     uint32_t seconds=std::min(3600u,30u*(1u<<failures_));
     seconds+=random%31;
@@ -99,7 +105,15 @@ void Scheduler::finish(Ms now,Error e,uint32_t poll,uint32_t retry,uint32_t rand
 }
 bool Scheduler::check_now(Ms now) {
     if(busy_ || now<manual_after_ || now<embargo_)return false;
-    manual_after_=now+600000;paused_=false;next_=now;return true;
+    manual_after_=now+600000;paused_=false;pause_reason_=Error::None;next_=now;return true;
+}
+void Scheduler::calendar_month(uint32_t month,Ms now) {
+    if(!month || month<=month_)return;
+    if(month_ && paused_ && pause_reason_==Error::Billing) {
+        paused_=false;pause_reason_=Error::None;failures_=0;
+        next_=std::max(now,embargo_);
+    }
+    month_=month;
 }
 void Session::failed_login(Ms now) {
     failures_=std::min(failures_+1,8u);retry_=now+Ms(std::min(300u,1u<<failures_))*1000;

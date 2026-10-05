@@ -6,3 +6,10 @@ project(tsl_smart_contactor VERSION 0.1.0)
 if(NOT "$ENV{IDF_VERSION}" STREQUAL "5.5.2")
     message(FATAL_ERROR "Use pinned ESP-IDF v5.5.2 (see tools/bootstrap.sh)")
 endif()
+find_package(Git REQUIRED)
+execute_process(COMMAND "${GIT_EXECUTABLE}" -C "$ENV{IDF_PATH}" apply --reverse --check
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/patches/esp-idf-v5.5.2-https-oom.patch"
+    RESULT_VARIABLE SDK_CLEANUP_PATCH_STATUS OUTPUT_QUIET ERROR_QUIET)
+if(NOT SDK_CLEANUP_PATCH_STATUS EQUAL 0)
+    message(FATAL_ERROR "Apply the pinned HTTPS cleanup fix: tools/bootstrap.sh --patch-sdk $ENV{IDF_PATH}")
+endif()

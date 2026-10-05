@@ -27,6 +27,14 @@ void worker(void* context) {
     uint32_t view_generation=snapshot().generation;
     while(true) {
         auto s=snapshot();
+        // Tesla restores billing-limit access at a new UTC billing month.
+        // Only synchronized time can release that specific scheduler pause;
+        // permission/revocation/storage pauses remain latched.
+        if(io.ready()) {
+            time_t utc=io.utc();tm calendar{};
+            if(gmtime_r(&utc,&calendar))
+                scheduler.calendar_month((calendar.tm_year+1900)*12+calendar.tm_mon+1,now_ms());
+        }
         if(s.generation!=view_generation) {
             view_generation=s.generation;
             vehicle=Vehicle::Unknown;

@@ -18,7 +18,8 @@ struct StoreFake : Store {
     }
 };
 struct Reply {Endpoint endpoint;int status;std::string body;Error transport_error=Error::None;
-    const char* txid="";const char* date="";int64_t received=0;bool request_may_have_been_sent=true;};
+    const char* txid="";const char* date="";int64_t received=0;bool request_may_have_been_sent=true;
+    uint32_t retry_s=0;};
 const std::string token="{\"access_token\":\"synthetic-access\",\"refresh_token\":\"synthetic-next\",\"token_type\":\"Bearer\",\"expires_in\":1000}";
 const std::string asleep="{\"response\":{\"vin\":\"5YJ3E1EA7KF000001\",\"state\":\"asleep\"}}";
 const std::string online="{\"response\":{\"vin\":\"5YJ3E1EA7KF000001\",\"state\":\"online\"}}";
@@ -44,6 +45,7 @@ struct IO : FleetIO {
         std::snprintf(r.transaction_id,sizeof r.transaction_id,"%s",reply.txid);
         std::snprintf(r.response_date,sizeof r.response_date,"%s",reply.date);r.received_utc_s=reply.received;
         r.error=reply.transport_error==Error::None ? http_error(reply.status) : reply.transport_error;
+        r.retry_s=reply.retry_s;
         r.request_may_have_been_sent=reply.request_may_have_been_sent;
         r.body.append(reply.body.data(),reply.body.size());
         if(hook)hook(e);
@@ -323,15 +325,50 @@ TEST(refresh_maybe_sent_failures_keep_the_bounded_recovery_limit) {
     for(auto response:{Reply{Endpoint::Refresh,0,"",Error::Timeout},
                        Reply{Endpoint::Refresh,429,"{}"},Reply{Endpoint::Refresh,503,"{}"}}) {
         Fixture f;
-        for(int i=0;i<3;++i) {
+        for(uint32_t i=0;i<kRefreshRecoveryAttempts;++i) {
             f.io.replies={response};
             REQUIRE(f.client.refresh(config())==
                     (response.status ? http_error(response.status) : Error::Timeout));
-            f.io.elapsed+=3600000;
+            f.io.elapsed+=60000;
         }
         REQUIRE(f.client.refresh(config())==Error::Reauthorize);
-        REQUIRE(f.client.reauthorization_needed());REQUIRE(f.io.requests.size()==3);
+        REQUIRE(f.client.reauthorization_needed());REQUIRE(f.io.requests.size()==kRefreshRecoveryAttempts);
     }
+}
+TEST(refresh_transient_outage_recovers_after_more_than_three_ambiguous_failures) {
+    Fixture f;Scheduler scheduler;
+    for(unsigned i=0;i<6;++i) {
+        f.io.elapsed=scheduler.next();REQUIRE(scheduler.begin(f.io.elapsed));
+        f.io.replies={{Endpoint::Refresh,503,"{}"}};
+        auto error=f.client.refresh(config());REQUIRE(error==Error::Server);
+        REQUIRE(!f.client.reauthorization_needed());
+        scheduler.finish(f.io.elapsed,error,600,f.client.retry_s(),0);
+    }
+    REQUIRE(scheduler.next()>3600000);REQUIRE(!scheduler.paused());
+    FleetClient reboot(f.store,f.io,"synthetic-client");REQUIRE(reboot.initialize()==Error::None);
+    f.io.elapsed=scheduler.next();f.io.replies={{Endpoint::Refresh,200,token}};
+    REQUIRE(reboot.refresh(config())==Error::None);REQUIRE(!reboot.reauthorization_needed());
+    REQUIRE(reboot.refresh_at()==f.io.elapsed+900000);
+    TokenJournal stored(f.store);REQUIRE(stored.load()==Error::None);
+    REQUIRE(std::string(stored.current())=="synthetic-next");
+}
+TEST(refresh_recovery_never_moves_first_uncertain_twenty_four_hour_ceiling) {
+    Fixture f;f.io.replies={{Endpoint::Refresh,0,"",Error::Timeout}};
+    REQUIRE(f.client.refresh(config())==Error::Timeout);
+    f.io.elapsed=Ms(23)*3600000;f.io.replies={{Endpoint::Refresh,503,"{}"}};
+    REQUIRE(f.client.refresh(config())==Error::Server);
+    f.io.elapsed=Ms(24)*3600000;
+    REQUIRE(f.client.refresh(config())==Error::Reauthorize);
+    REQUIRE(f.io.requests.size()==2);REQUIRE(f.client.reauthorization_needed());
+}
+TEST(standalone_refresh_discards_retry_after_from_previous_responses) {
+    Fixture f;Reply limited{Endpoint::Refresh,429,"{}"};limited.retry_s=86400;
+    f.io.replies={limited};REQUIRE(f.client.refresh(config())==Error::RateLimit);
+    REQUIRE(f.client.retry_s()==86400);
+    f.io.elapsed=60000;f.io.replies={{Endpoint::Refresh,503,"{}"}};
+    REQUIRE(f.client.refresh(config())==Error::Server);REQUIRE(f.client.retry_s()==0);
+    f.io.replies={{Endpoint::Refresh,200,token}};
+    REQUIRE(f.client.refresh(config())==Error::None);REQUIRE(f.client.retry_s()==0);
 }
 TEST(refresh_unsent_restore_failure_is_a_critical_storage_error) {
     Fixture f;Reply unsent{Endpoint::Refresh,0,"",Error::Transport};

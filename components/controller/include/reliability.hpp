@@ -20,6 +20,9 @@ struct TokenRecord {
     uint8_t pending = 0, reauthorize = 0;
     uint32_t crc = 0;
 };
+// Local recovery bound, not a Tesla quota. The original intent's 24-hour
+// reuse ceiling still applies, including across reboots and connection failures.
+constexpr uint32_t kRefreshRecoveryAttempts = 32;
 class TokenJournal {
 public:
     explicit TokenJournal(Store& s) : store_(s) {}
@@ -69,12 +72,17 @@ public:
     bool begin(Ms now);
     void finish(Ms now, Error error, uint32_t poll_s, uint32_t retry_s, uint32_t random);
     bool check_now(Ms now);
+    // Call only with a synchronized UTC calendar month (year * 12 + month1).
+    // Billing access may recover in a new cycle; other permanent errors do not.
+    void calendar_month(uint32_t month, Ms now);
     Ms next() const { return next_; }
     bool paused() const { return paused_; }
 private:
     Ms next_=0, embargo_=0, manual_after_=0;
     unsigned failures_=0;
     bool busy_=false, paused_=false;
+    Error pause_reason_=Error::None;
+    uint32_t month_=0;
 };
 class Session {
 public:

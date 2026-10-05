@@ -124,6 +124,10 @@ Decision Policy::tick(Ms now) {
     commanded_ = d.commanded;
     return d;
 }
+bool recent_utc_sync(uint32_t now_uptime_s,uint32_t last_sync_uptime_s,bool synchronized) {
+    // Unsigned elapsed time remains valid across the uptime-seconds wrap.
+    return synchronized && uint32_t(now_uptime_s-last_sync_uptime_s)<=kUtcSyncMaxAgeS;
+}
 bool ClockGuard::update(Ms mono, int64_t utc, bool synced) {
     jumped_ = false;
     if (!synced || utc < 1704067200LL || utc > 4102444800LL) {

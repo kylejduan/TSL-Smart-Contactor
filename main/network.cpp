@@ -15,6 +15,7 @@ namespace app {
 static_assert(CONFIG_LWIP_DNS_MAX_SERVERS>=2,
     "IDF reserves the last DNS slot; DHCP needs a separate usable slot");
 static void sync_callback(timeval*) {
+    utc_last_sync_uptime_s=static_cast<uint32_t>(now_ms()/1000);
     utc_continuity=true;
     utc_synced=wifi_connected.load();
 }
@@ -27,10 +28,12 @@ static void wifi_event(void*,esp_event_base_t base,int32_t id,void* data) {
         // on reconnection; never accept an unsynchronized RTC as usable UTC.
         if(esp_netif_sntp_start()!=ESP_OK)fail("sntp_start");
     }
-    if(base==WIFI_EVENT && id==WIFI_EVENT_STA_DISCONNECTED) {
+    if((base==WIFI_EVENT && id==WIFI_EVENT_STA_DISCONNECTED) ||
+       (base==IP_EVENT && id==IP_EVENT_STA_LOST_IP)) {
         utc_synced=false;
         wifi_connected=false;
-        if(data)wifi_disconnect_reason=static_cast<wifi_event_sta_disconnected_t*>(data)->reason;
+        if(base==WIFI_EVENT && data)
+            wifi_disconnect_reason=static_cast<wifi_event_sta_disconnected_t*>(data)->reason;
     }
 }
 static void reconnect_task(void*) {
@@ -51,7 +54,8 @@ void start_wifi(const Profile& p) {
     wifi_init_config_t init=WIFI_INIT_CONFIG_DEFAULT();
     if(esp_wifi_init(&init)!=ESP_OK || esp_wifi_set_storage(WIFI_STORAGE_RAM)!=ESP_OK ||
        esp_event_handler_register(WIFI_EVENT,ESP_EVENT_ANY_ID,wifi_event,nullptr)!=ESP_OK ||
-       esp_event_handler_register(IP_EVENT,IP_EVENT_STA_GOT_IP,wifi_event,nullptr)!=ESP_OK) {fail("network_init_or_allocation");return;}
+       esp_event_handler_register(IP_EVENT,IP_EVENT_STA_GOT_IP,wifi_event,nullptr)!=ESP_OK ||
+       esp_event_handler_register(IP_EVENT,IP_EVENT_STA_LOST_IP,wifi_event,nullptr)!=ESP_OK) {fail("network_init_or_allocation");return;}
     wifi_config_t cfg={};
     std::memcpy(cfg.sta.ssid,p.ssid,std::strlen(p.ssid));
     std::memcpy(cfg.sta.password,p.wifi_password,std::strlen(p.wifi_password));
@@ -85,11 +89,17 @@ void request(Endpoint endpoint,const Config& cfg,const char* access,const char* 
         "POST %s HTTP/1.1\r\nHost: %s\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: %u\r\nConnection: close\r\nAccept-Encoding: identity\r\n\r\n",
         path,host,unsigned(std::strlen(form))) : std::snprintf(header,sizeof header,
         "GET %s HTTP/1.1\r\nHost: %s\r\nAuthorization: Bearer %s\r\nConnection: close\r\nAccept-Encoding: identity\r\n\r\n",path,host,access);
-    if(n<=0 || size_t(n)>=sizeof header) {r.error=Error::Malformed;return;}
+    if(n<=0 || size_t(n)>=sizeof header) {
+        mbedtls_platform_zeroize(header,sizeof header);
+        r.error=Error::Malformed;return;
+    }
     esp_tls_cfg_t config={};config.crt_bundle_attach=esp_crt_bundle_attach;
     config.non_block=true;config.timeout_ms=10000;
     auto* tls=esp_tls_init();
-    if(!tls) {fail("network_init_or_allocation");r.error=Error::Storage;return;}
+    if(!tls) {
+        mbedtls_platform_zeroize(header,sizeof header);
+        r.error=Error::Transport;return;
+    }
     const Ms deadline=now_ms()+20000,connect_deadline=now_ms()+10000;
     int connected=0;
     do {
@@ -97,7 +107,10 @@ void request(Endpoint endpoint,const Config& cfg,const char* access,const char* 
         if(connected!=0)break;
         vTaskDelay(pdMS_TO_TICKS(20));
     } while(now_ms()<connect_deadline);
-    if(connected!=1)r.error=connected<0 ? Error::Transport : Error::Timeout;
+    // The SDK's first async call still performs synchronous DNS resolution and
+    // a bounded socket select. Reject late completion before sending HTTP data.
+    if(now_ms()>=connect_deadline)r.error=Error::Timeout;
+    else if(connected!=1)r.error=connected<0 ? Error::Transport : Error::Timeout;
     auto write=[&](const char* p,size_t length) {
         size_t sent=0;Ms progress=now_ms();
         while(sent<length) {

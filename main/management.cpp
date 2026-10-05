@@ -182,16 +182,15 @@ esp_err_t login(httpd_req_t* r) {
     if(httpd_req_async_handler_begin(r,&login_job.request)!=ESP_OK) {
         mbedtls_platform_zeroize(login_job.password,sizeof login_job.password);
         mbedtls_platform_zeroize(login_job.material,sizeof login_job.material);
-        fail("login_request_allocation");return reply(r,"{\"error\":\"login_unavailable\"}","503 Service Unavailable");
+        return reply(r,"{\"error\":\"login_unavailable\"}","503 Service Unavailable");
     }
     login_busy=true;
     login_job.verified=false;login_job.storage_fault=false;
     if(xTaskCreate(verify_login,"password_check",6144,nullptr,2,nullptr)!=pdPASS) {
         mbedtls_platform_zeroize(login_job.password,sizeof login_job.password);
         mbedtls_platform_zeroize(login_job.material,sizeof login_job.material);
-        fail("login_task");
         reply(login_job.request,"{\"error\":\"login_unavailable\"}","503 Service Unavailable");
-        httpd_req_async_handler_complete(login_job.request);
+        if(httpd_req_async_handler_complete(login_job.request)!=ESP_OK)fail("login_complete");
         login_job.request=nullptr;login_busy=false;
     }
     return ESP_OK;

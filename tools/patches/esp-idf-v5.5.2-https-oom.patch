@@ -1,0 +1,12 @@
+diff --git a/components/esp_https_server/src/https_server.c b/components/esp_https_server/src/https_server.c
+index 5ae72130..505a36b3 100644
+--- a/components/esp_https_server/src/https_server.c
++++ b/components/esp_https_server/src/https_server.c
+@@ -189,6 +189,7 @@ static esp_err_t httpd_ssl_open(httpd_handle_t server, int sockfd)
+         esp_https_server_last_error_t last_error = {0};
+         last_error.last_error = ESP_ERR_NO_MEM;
+         http_dispatch_event_to_event_loop(HTTPS_SERVER_EVENT_ERROR, &last_error, sizeof(last_error));
++        esp_tls_server_session_delete(tls);
+         return ESP_ERR_NO_MEM;
+     }
+     transport_ctx->tls = tls;
