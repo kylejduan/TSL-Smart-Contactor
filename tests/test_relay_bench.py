@@ -162,7 +162,8 @@ class BenchWorkflowTests(unittest.TestCase):
                 bench.stage_image(source, hashlib.sha256(original).hexdigest(), destination)
 
     def test_cli_keeps_reviewed_images_on_failure_cleans_only_after_success(self):
-        for failure in (True, False):
+        for failure in (RuntimeError("synthetic-sensitive-detail"),
+                        bench.BenchError("Unexpected board"), None):
             with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 production = root / "production.bin"
@@ -180,10 +181,13 @@ class BenchWorkflowTests(unittest.TestCase):
                 with patch.object(sys, "argv", argv), \
                         patch.object(bench.importlib.metadata, "version", return_value="4.12.0"), \
                         patch.object(bench.tempfile, "mkdtemp", return_value=str(stage)), \
-                        patch.object(bench, "run", side_effect=RuntimeError() if failure else None), \
-                        contextlib.redirect_stdout(io.StringIO()):
+                        patch.object(bench, "run", side_effect=failure), \
+                        contextlib.redirect_stdout(io.StringIO()) as output:
                     self.assertEqual(bench.main(), 1 if failure else 0)
-                self.assertEqual(stage.exists(), failure)
+                self.assertEqual(stage.exists(), bool(failure))
+                self.assertNotIn("synthetic-sensitive-detail", output.getvalue())
+                if isinstance(failure, bench.BenchError):
+                    self.assertIn('"bench_error_reason": "Unexpected board"', output.getvalue())
                 if failure:
                     self.assertEqual((stage / "production.bin").read_bytes(), production.read_bytes())
 

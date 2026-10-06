@@ -23,6 +23,10 @@ APP_SIZE = 0x300000
 BENCH_ID = "TSL_USB_RELAY_BENCH"
 
 
+class BenchError(RuntimeError):
+    """Only static, credential-free diagnostic messages are emitted publicly."""
+
+
 def image(path, digest):
     path = Path(path).resolve(strict=True)
     if not re.fullmatch(r"[0-9a-f]{64}", digest):
@@ -48,12 +52,12 @@ def inhibited(state, diagnostic, expected_mac):
     values = {"ready": True, "disabled": True, "commissioned": False,
               "dry_run": True, "commanded_on": False, "fault": False}
     if any(state.get(key) is not value for key, value in values.items()):
-        raise RuntimeError("Production controller must be inhibited")
+        raise BenchError("Production controller must be inhibited")
     if (diagnostic.get("station_mac") != expected_mac.lower() or
             diagnostic.get("profile_integrity") is not True or
             diagnostic.get("token_state") != "usable" or
             diagnostic.get("provision_pending") is not False):
-        raise RuntimeError("Unexpected board identity or storage state")
+        raise BenchError("Unexpected board identity or storage state")
 
 
 class Hardware:
@@ -66,7 +70,7 @@ class Hardware:
         diagnostic = usb_exchange(self.port, {"op": "diagnostics"}, timeout=5)
         hello = usb_exchange(self.port, {"op": "hello"}, timeout=5)
         if hello.get("board") != "ESP32-S3-Relay-1CH":
-            raise RuntimeError("Unexpected board")
+            raise BenchError("Unexpected board")
         inhibited(state, diagnostic, self.expected_mac)
         return state
 
@@ -103,11 +107,11 @@ class Hardware:
                         continue
                     if isinstance(result, dict):
                         return result
-                    raise RuntimeError("Invalid bench response")
+                    raise BenchError("Invalid bench response")
                 line.extend(byte)
                 if len(line) > 1024:
-                    raise RuntimeError("Oversized bench response")
-            raise RuntimeError("Bench acknowledgement missing; ON is not retried")
+                    raise BenchError("Oversized bench response")
+            raise BenchError("Bench acknowledgement missing; ON is not retried")
         finally:
             connection.close()
 
@@ -118,9 +122,9 @@ def bench_state(state, *, nonce=None):
             type(state.get("commanded_on")) is not bool or
             type(state.get("used")) is not bool or
             not re.fullmatch(r"[0-9a-f]{32}", state.get("nonce", ""))):
-        raise RuntimeError("Unexpected bench identity/state")
+        raise BenchError("Unexpected bench identity/state")
     if nonce is not None and state["nonce"] != nonce:
-        raise RuntimeError("Bench rebooted; pulse must not be retried")
+        raise BenchError("Bench rebooted; pulse must not be retried")
     return state
 
 
@@ -135,25 +139,25 @@ def run(hw, bench_path, production_path, sleep=time.sleep, emit=print):
         sleep(3)
         initial = bench_state(hw.bench("STATUS"))
         if initial["commanded_on"] or initial["used"]:
-            raise RuntimeError("Bench is not initially unused and OFF")
+            raise BenchError("Bench is not initially unused and OFF")
         dwell = initial.get("dwell_remaining_ms")
         if type(dwell) is not int or not 0 <= dwell <= 30000:
-            raise RuntimeError("Invalid OFF dwell")
+            raise BenchError("Invalid OFF dwell")
         emit("Keep watching isolated COM-NO: waiting for the 30-second OFF dwell.")
         sleep(dwell / 1000 + 0.1)
         ready = bench_state(hw.bench("STATUS"), nonce=initial["nonce"])
         if ready["commanded_on"] or ready["used"] or ready.get("dwell_remaining_ms") != 0:
-            raise RuntimeError("Bench is not ready")
+            raise BenchError("Bench is not ready")
         emit("One two-second relay pulse begins in five seconds. Watch the meter now.")
         sleep(5)
         # This is the sole START call; a missing acknowledgement never retries it.
         ack = bench_state(hw.bench("START " + initial["nonce"]), nonce=initial["nonce"])
         if ack.get("ok") is not True or ack.get("commanded_on") is not True:
-            raise RuntimeError("Pulse not acknowledged; outcome requires observation")
+            raise BenchError("Pulse not acknowledged; outcome requires observation")
         sleep(2.3)
         final = bench_state(hw.bench("STATUS"), nonce=initial["nonce"])
         if final["commanded_on"] or not final["used"]:
-            raise RuntimeError("Expected completed one-shot OFF state")
+            raise BenchError("Expected completed one-shot OFF state")
         emit("Diagnostic reports OFF after the pulse; physical contact result is operator-observed.")
     finally:
         # Also runs for partial flash, malformed replies, lost START ack or Ctrl-C.
@@ -187,7 +191,7 @@ def main():
     staging = None
     try:
         if importlib.metadata.version("esptool") != "4.12.0":
-            raise RuntimeError("Use pinned esptool 4.12.0")
+            raise BenchError("Use pinned esptool 4.12.0")
         bench_path = image(args.bench_image, args.bench_sha256)
         production_path = image(args.production_image, args.production_sha256)
         if bench_path == production_path or args.bench_sha256 == args.production_sha256:
@@ -201,6 +205,7 @@ def main():
         shutil.rmtree(staging)
     except (Exception, KeyboardInterrupt) as exc:
         print(json.dumps({"bench_error_type": type(exc).__name__,
+                          "bench_error_reason": str(exc) if isinstance(exc, BenchError) else None,
                           "retained_image_directory": str(staging) if staging else None,
                           "expected_production_sha256": args.production_sha256,
                           "instruction": "Keep mains disconnected. Verify restoration before further use; see docs/relay_bench.md."}))
