@@ -42,7 +42,7 @@
     ['home_lon', 'Home longitude', 'number', 'location', -180, 180, 'Decimal degrees.'],
     ['enable_m', 'Enable radius · metres', 'number', 'policy', 10, 9999, 'Must be smaller than the disable radius.'],
     ['disable_m', 'Disable radius · metres', 'number', 'policy', 11, 10000, 'Outside this boundary, valid AWAY evidence clears AUTO.'],
-    ['max_age_s', 'Maximum GPS source age · seconds', 'number', 'policy', 1, 120, 'Age of the source fix, not the HTTP response.'],
+    ['max_age_s', 'Maximum GPS source age · seconds', 'number', 'policy', 1, 600, 'Age of the source fix. Older fixes leave less authorization time.'],
     ['future_s', 'Future tolerance · seconds', 'number', 'policy', 0, 30, 'A tolerated future timestamp adds no lease time.'],
     ['lease_s', 'Authorization lease · seconds', 'number', 'policy', 60, 900, 'Failures and duplicate fixes do not renew it.'],
     ['sleep_s', 'Sleeping-home ceiling · seconds', 'number', 'policy', 60, 86400, 'At least the lease; measured from the last qualifying source fix.'],
@@ -94,7 +94,7 @@
   function settingsBasisHelp() {
     const reportBased = $('setting-position_basis').value === 'vehicle_report';
     $('setting-max_age_s-label').textContent = reportBased ? 'Maximum vehicle report age · seconds' : 'Maximum GPS source age · seconds';
-    $('setting-max_age_s-hint').textContent = reportBased ? 'Age of the vehicle report. Coordinates can be older than the report.' : 'Age of the source fix, not the HTTP response.';
+    $('setting-max_age_s-hint').textContent = reportBased ? 'Age of the vehicle report. Coordinates can be older than the report.' : 'Age of the source fix. Older fixes leave less authorization time.';
     $('setting-sleep_s-hint').textContent = reportBased ? 'At least the lease; measured from the last qualifying vehicle report.' : 'At least the lease; measured from the last qualifying source fix.';
     $('basis-setting-help').textContent = reportBased ? 'Latest reported position accepts vehicle report time for freshness and lease deadlines. A recent report can contain older coordinates and does not prove GPS acquisition age.' : 'GPS source time is required. Invalid or missing GPS acquisition time cannot establish or renew AUTO.';
   }

@@ -24,6 +24,52 @@ TEST(lease_t0_expires_at_900) {
     Policy p;p.configure(config(),1,0);p.observe(fix(epoch),0,epoch,true);
     REQUIRE(p.tick(899999).commanded);REQUIRE(!p.tick(900000).commanded);
 }
+TEST(ten_minute_profile_old_home_fix_keeps_source_anchored_cutoff) {
+    auto c=config();c.max_age_s=600;c.lease_s=600;c.poll_s=540;
+    REQUIRE(valid_config(c));
+    Policy p;p.configure(c,1,0);
+    p.observe(fix(epoch-472),0,epoch,true);
+    REQUIRE(p.tick(30000).commanded);
+    REQUIRE(p.tick(30000).lease_left==98000);
+    // Repeating the parked position must not grant ten new minutes on receipt.
+    p.observe(fix(epoch-472,2),60000,epoch+60,true);
+    auto error=fix(epoch+90,3);error.kind=Evidence::Unknown;
+    p.observe(error,90000,epoch+90,true);
+    REQUIRE(p.tick(127999).commanded);
+    REQUIRE(!p.tick(128000).auto_home);
+    REQUIRE(!p.tick(128000).commanded);
+}
+TEST(ten_minute_profile_fresh_renewal_away_and_failed_poll) {
+    auto c=config();c.max_age_s=600;c.lease_s=600;c.poll_s=540;
+    Policy p;p.configure(c,1,0);p.observe(fix(epoch),0,epoch,true);
+    REQUIRE(p.tick(30000).commanded);
+    p.observe(fix(epoch+540,2),540000,epoch+540,true);
+    REQUIRE(p.tick(540000).commanded);
+    auto unknown=fix(epoch+1080,3);unknown.kind=Evidence::Unknown;
+    p.observe(unknown,1080000,epoch+1080,true);
+    REQUIRE(p.tick(1139999).commanded);
+    REQUIRE(!p.tick(1140000).commanded);
+    Policy away;away.configure(c,1,0);away.observe(fix(epoch),0,epoch,true);
+    REQUIRE(away.tick(30000).commanded);
+    away.observe(fix(epoch+31,2,1),31000,epoch+31,true);
+    REQUIRE(!away.tick(31000).commanded);
+}
+TEST(ten_minute_profile_sleep_does_not_extend_outage_or_resurrect_expiry) {
+    auto c=config();c.max_age_s=600;c.lease_s=600;c.poll_s=540;
+    Policy p;p.configure(c,1,0);p.observe(fix(epoch),0,epoch,true);
+    auto sleep=fix(epoch,2);sleep.kind=Evidence::Asleep;
+    p.observe(sleep,540000,epoch+540,true);
+    REQUIRE(p.tick(540000).lease_left==600000);
+    REQUIRE(p.tick(1139999).commanded);
+    REQUIRE(!p.tick(1140000).commanded);
+    sleep.request=3;p.observe(sleep,1140001,epoch+1140,true);
+    REQUIRE(!p.tick(1140001).auto_home);
+    Policy old;old.configure(c,1,0);
+    old.observe(fix(epoch-600),0,epoch,true);
+    REQUIRE(!old.tick(0).auto_home);
+    sleep.request=2;old.observe(sleep,1,epoch,true);
+    REQUIRE(!old.tick(30000).commanded);
+}
 TEST(fresh_fix_at_600_renews_without_pulse) {
     Policy p;p.configure(config(),1,0);p.observe(fix(epoch),0,epoch,true);REQUIRE(p.tick(30000).commanded);
     p.observe(fix(epoch+600,2),600000,epoch+600,true);

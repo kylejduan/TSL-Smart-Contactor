@@ -147,6 +147,21 @@ const fs = require('node:fs/promises');
       assert.equal(await page.locator('#setting-position_basis').inputValue(), 'gps_source');
       assert.equal((await read()).state.lease_s, 0);
     });
+    await run('ten-minute source age and lease settings retain GPS basis and reject excessive age', async () => {
+      await reset({ commissioned: true, reason: 'user_disabled' });
+      await page.locator('#policy-settings').evaluate(el => el.closest('details').open = true);
+      await page.locator('#setting-max_age_s').fill('601');
+      assert.equal(await page.locator('#setting-max_age_s').evaluate(e => e.validity.rangeOverflow), true);
+      await page.locator('#setting-max_age_s').fill('600');
+      await page.locator('#setting-lease_s').fill('600');
+      await page.locator('#setting-poll_s').fill('540');
+      await page.locator('#save').click(); await page.locator('#confirm-accept').click();
+      await page.waitForFunction(() => document.getElementById('settings-dirty').hidden && !document.getElementById('save').disabled);
+      const settings = (await read()).commands.at(-1).settings;
+      assert.equal(settings.position_basis, 'gps_source');
+      assert.equal(settings.max_age_s, 600); assert.equal(settings.lease_s, 600); assert.equal(settings.poll_s, 540);
+      await waitText('setting-max_age_s-hint', 'Older fixes leave less authorization time');
+    });
     await run('AUTO and timed override require deliberate confirmation; OFF wins', async () => {
       await reset({ commissioned: true, reason: 'user_disabled' });
       await page.locator('#auto').click(); await page.locator('#confirmation button[value="cancel"]').click();

@@ -27,7 +27,7 @@ bool valid_config(const Config& c) {
         std::isfinite(c.home_lat) && std::isfinite(c.home_lon) &&
         std::abs(c.home_lat) <= 90 && std::abs(c.home_lon) <= 180 &&
         c.enable_m >= 10 && c.enable_m < c.disable_m && c.disable_m <= 10000 &&
-        c.max_age_s >= 1 && c.max_age_s <= 120 && c.future_s <= 30 &&
+        c.max_age_s >= 1 && c.max_age_s <= 600 && c.future_s <= 30 &&
         c.lease_s >= 60 && c.lease_s <= 900 && c.sleep_s >= c.lease_s && c.sleep_s <= 86400 &&
         c.poll_s >= 60 && c.poll_s <= 3600 && c.dwell_s >= 30 && c.dwell_s <= 600 &&
         c.daily_cap >= 1 && c.daily_cap <= 10000 && c.monthly_cap >= 1 &&

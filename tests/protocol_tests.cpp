@@ -3,6 +3,15 @@
 #include <cstdlib>
 #include <ctime>
 using namespace tsl;
+TEST(config_accepts_bounded_ten_minute_source_age) {
+    for(int age:{600,601}) {
+        Json j;auto c=config();
+        std::string text="{\"vin\":\"5YJ3E1EA7KF000001\",\"home_lat\":0,\"home_lon\":0,"
+            "\"max_age_s\":"+std::to_string(age)+",\"lease_s\":600,\"poll_s\":540}";
+        REQUIRE(j.parse(text));REQUIRE(parse_config(j,0,c)==(age==600));
+        if(age==600)REQUIRE(c.max_age_s==600 && c.lease_s==600 && c.poll_s==540);
+    }
+}
 static std::string body(const std::string& fields) {
     return "{\"response\":{\"vin\":\"5YJ3E1EA7KF000001\",\"state\":\"online\",\"drive_state\":{"+fields+"}}}";
 }
