@@ -23,7 +23,7 @@ struct DurableMemory : Store {
 };
 struct SeasonalTransport : FleetIO {
     Ms elapsed=0;
-    bool connected=true,service_down=false,asleep=false,away=false;
+    bool connected=true,service_down=false,asleep=false,away=false,negative_gps=false;
     std::array<unsigned,3> requests{};
     Ms now() const override {return elapsed;}
     int64_t utc() const override {return 1767225600LL+elapsed/1000;} // 2026-01-01
@@ -47,8 +47,10 @@ struct SeasonalTransport : FleetIO {
         } else {
             REQUIRE(!asleep); // No location requests to sleeping vehicles.
             std::snprintf(body,sizeof body,"{\"response\":{\"vin\":\"5YJ3E1EA7KF000001\","
-                "\"drive_state\":{\"latitude\":0,\"longitude\":%.3f,\"gps_as_of\":%lld}}}",
-                away?0.01:0.0,static_cast<long long>(utc()));
+                "\"drive_state\":{\"latitude\":0,\"longitude\":%.3f,\"gps_as_of\":%lld,"
+                "\"timestamp\":%lld}}}",away?0.01:0.0,
+                negative_gps?-123456789LL:static_cast<long long>(utc()),
+                static_cast<long long>(utc())*1000);
         }
         REQUIRE(r.body.append(body,std::strlen(body)));
     }
@@ -106,4 +108,109 @@ TEST(synthetic_year_recovers_from_repeated_outages_without_resetting_policy_or_c
     REQUIRE(io.now()>Ms(UINT32_MAX));
     TokenJournal rebooted(store);REQUIRE(rebooted.load()==Error::None);
     REQUIRE(!rebooted.needs_reauth());
+}
+
+TEST(selected_report_profile_sleeps_through_night_but_stops_at_fixed_ceiling) {
+    DurableMemory store;TokenJournal provision(store);
+    REQUIRE(provision.provision("synthetic-original")==Error::None);
+    SeasonalTransport io;io.negative_gps=true;
+    FleetClient client(store,io,"synthetic-client");REQUIRE(client.initialize()==Error::None);
+    auto cfg=config();cfg.position_basis=uint8_t(PositionBasis::VehicleReport);
+    cfg.max_age_s=600;cfg.lease_s=600;cfg.poll_s=540;REQUIRE(valid_config(cfg));
+    Policy policy;policy.configure(cfg,1,0);Scheduler scheduler;
+    uint64_t sequence=0;int64_t last_report=0;unsigned locations_before_sleep=0;
+    // The car supplies one HOME report, then sleeps for 36 hours. No location
+    // response or advancing report timestamp is fabricated during sleep.
+    for(Ms second=0;second<=37*60*60;second+=30) {
+        io.elapsed=second*1000;io.asleep=second>0 && second<36*60*60;
+        scheduler.calendar_month(io.month(),io.now());
+        if(scheduler.due(io.now())) {
+            REQUIRE(scheduler.begin(io.now()));
+            Observation o;o.generation=1;o.request=++sequence;std::strcpy(o.vin,cfg.vin);
+            auto result=client.poll(cfg,1,o);REQUIRE(result==Error::None);
+            REQUIRE(o.position_basis==PositionBasis::VehicleReport);
+            if(o.kind==Evidence::Location) {
+                REQUIRE(!io.asleep);last_report=o.source_s;
+                REQUIRE(client.diagnostics().gps_source_value<0);
+            } else REQUIRE(o.kind==Evidence::Asleep);
+            policy.observe(o,io.now(),io.utc(),true);
+            scheduler.finish(io.now(),result,cfg.poll_s,client.retry_s(),0);
+        }
+        const auto decision=policy.tick(io.now());
+        if(second==0) {locations_before_sleep=io.requests[1];REQUIRE(locations_before_sleep==1);}
+        if(io.asleep) {
+            REQUIRE(io.requests[1]==locations_before_sleep);
+            REQUIRE(decision.last_source_s==last_report);
+        }
+        if(second>=30 && second<24*60*60)REQUIRE(decision.commanded);
+        if(second>=24*60*60 && second<36*60*60) {
+            REQUIRE(!decision.commanded);REQUIRE(!decision.auto_home);
+        }
+        if(second>=36*60*60+cfg.poll_s)REQUIRE(decision.commanded);
+        REQUIRE(!client.reauthorization_needed());
+    }
+    REQUIRE(io.requests[2]>1); // Runtime refreshes continue during sleep.
+    REQUIRE(last_report>1767225600LL+36*60*60);
+}
+
+TEST(selected_report_profile_31_day_budget_and_next_month_recovery) {
+    for(uint32_t prior_attempts:{0u,64u}) {
+        DurableMemory store;TokenJournal provision(store);
+        REQUIRE(provision.provision("synthetic-original")==Error::None);
+        SeasonalTransport io;io.negative_gps=true;
+        if(prior_attempts) {
+            // Other controller attempts earlier in this UTC month, all counted
+            // conservatively. No external account usage is inferred here.
+            BudgetRecord prior;prior.day=io.utc()/86400;prior.month=io.month();
+            prior.daily[1]=prior_attempts;prior.monthly[1]=prior_attempts;seal(prior);
+            REQUIRE(store.write("budget",&prior,sizeof prior));
+        }
+        FleetClient client(store,io,"synthetic-client");REQUIRE(client.initialize()==Error::None);
+        auto cfg=config();cfg.position_basis=uint8_t(PositionBasis::VehicleReport);
+        cfg.max_age_s=600;cfg.lease_s=600;cfg.poll_s=540;REQUIRE(valid_config(cfg));
+        Policy policy;policy.configure(cfg,1,0);Scheduler scheduler;
+        uint64_t sequence=0;Ms first_monthly_failure=-1;
+        unsigned january_locations=0,budget_failures=0;uint32_t january_reserved=0;
+        constexpr Ms month_end=31LL*24*60*60*1000;
+        // Instantaneous successful responses are synthetic best-case throughput.
+        // Real deadlines/backoff can reduce calls or interrupt authorization.
+        for(Ms now=0;now<month_end+2*60*60*1000;now+=30000) {
+            io.elapsed=now;scheduler.calendar_month(io.month(),now);
+            if(scheduler.due(now)) {
+                REQUIRE(scheduler.begin(now));
+                Observation o;o.generation=1;o.request=++sequence;std::strcpy(o.vin,cfg.vin);
+                auto result=client.poll(cfg,1,o);
+                REQUIRE(result==Error::None || result==Error::Budget);
+                if(result==Error::None)policy.observe(o,now,io.utc(),true);
+                else {
+                    ++budget_failures;
+                    if(first_monthly_failure<0 && client.counts().monthly[1]==kMonthlyDataRequestCap)
+                        first_monthly_failure=now;
+                }
+                scheduler.finish(now,result,cfg.poll_s,client.retry_s(),0);
+            }
+            const auto decision=policy.tick(now);
+            REQUIRE(client.counts().monthly[1]<=kMonthlyDataRequestCap);
+            if(now<month_end) {
+                january_locations=io.requests[1];january_reserved=client.counts().monthly[1];
+                if(!prior_attempts && now>=30000)REQUIRE(decision.commanded);
+                // Daily exhaustion may recover tomorrow. Only monthly exhaustion
+                // must inhibit all later renewals until the new UTC month.
+                if(first_monthly_failure>=0 && now>=first_monthly_failure+cfg.lease_s*1000)
+                    REQUIRE(!decision.commanded);
+            }
+            if(now>=month_end+3600000)REQUIRE(decision.commanded);
+            REQUIRE(!client.reauthorization_needed());
+        }
+        if(!prior_attempts) {
+            REQUIRE(budget_failures==0);REQUIRE(january_locations==4960);
+            REQUIRE(january_reserved==4960); // $9.92 at the pinned $0.002 rate.
+        } else {
+            REQUIRE(budget_failures>0);REQUIRE(first_monthly_failure>=0);
+            REQUIRE(first_monthly_failure<month_end);
+            REQUIRE(january_reserved==kMonthlyDataRequestCap);
+            REQUIRE(january_locations+prior_attempts<=kMonthlyDataRequestCap);
+        }
+        REQUIRE(io.requests[1]>january_locations); // New UTC month resumes polling.
+    }
 }
