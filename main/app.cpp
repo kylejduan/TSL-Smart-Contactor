@@ -167,7 +167,7 @@ extern "C" void app_main() {
         if(clock.jumped())policy.clock_discontinuity(now);
         if(critical_fault)policy.fault(now);
         Observation o;
-        for(int i=0;i<8 && xQueueReceive(obs_queue,&o,0)==pdTRUE;++i)
+        for(int i=0;obs_queue && i<8 && xQueueReceive(obs_queue,&o,0)==pdTRUE;++i)
             policy.observe(o,now,time(nullptr),evidence_time_ok);
         Decision d=policy.tick(now);
         portENTER_CRITICAL(&lock);

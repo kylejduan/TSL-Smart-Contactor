@@ -62,6 +62,10 @@ unmeasured electrical or physical failure behavior.
 8. UTC readiness could remain true indefinitely during an NTP-only outage.
    A six-hour monotonic sync-age limit now gates new evidence and TLS. USB
    diagnostics expose `utc_sync_age_s`; this is a project default, not an API rule.
+9. A null observation queue was detected at startup, but the loop still attempted
+   a receive using that handle. It now skips queue reads after creation failure
+   while retaining the critical fault and OFF command. A native test injects
+   this failure into the actual production entrypoint rather than a copied loop.
 
 ## Verification and limits
 
@@ -74,6 +78,13 @@ after outage expiry, no sleeping-location requests and no cap overflow. There
 are no paid requests or real credentials in this test. Separate tests cover
 power loss around token commits, reboot/dwell, clock jumps, sync-age expiry,
 revocation, retry bounds and billing/calendar behavior.
+
+Linux/WSL tests also compile the production entrypoint and board adapter with
+test-only SDK calls. Twenty-one process-isolated scenarios verify startup
+inhibition, task/storage/queue failures, GPIO errors, OFF during blocked I/O,
+lease expiry and control deadline/watchdog-feed failures. They verify command
+and state publication before feeding the watchdog. They do not simulate
+FreeRTOS concurrency or prove the physical watchdog's reset timing.
 
 This simulation does **not** test flash wear, electrical contacts, real radio/DHCP
 events, real TLS allocation failure, physical brownouts, RF interference or the

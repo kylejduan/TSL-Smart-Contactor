@@ -30,6 +30,18 @@ cover one-shot operation and host restoration. Python tests cover provisioning,
 OAuth redirect/state validation, recovery and bounded local observation. Browser
 scenarios use synthetic responses and never issue Tesla requests.
 
+On Linux/WSL with GCC or Clang, CTest also compiles the unchanged production
+`main/app.cpp` and board adapter against test-only SDK declarations. Twenty-one
+separate-process scenarios exercise boot/inhibition, startup failures, failed
+queue creation and overflow, GPIO errors, blocked-I/O lease expiry, immediate OFF
+with late requests, control deadline and watchdog-feed failures, and recoverable
+allocation errors. GPIO commands and state publication are checked before every
+watchdog feed. A failed queue initialization must stay faulted/OFF without passing
+a null handle into the SDK. These tests use a synthetic clock, GPIO and storage;
+they do not model FreeRTOS concurrency or measure actual watchdog reset timing,
+radio behavior, contacts or flash writes. The test-only SDK headers never enter
+the ESP32 build.
+
 The integration endurance scenario runs 366 synthetic days with recurring Wi-Fi
 and API outages, daily HOME/AWAY, sleeping intervals, refresh rotation and month
 rollover. Report-profile cases separately test fixed sleep ceilings and spending

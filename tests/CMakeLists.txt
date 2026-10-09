@@ -24,3 +24,28 @@ if(SANITIZE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_link_options(bench_relay_tests PRIVATE -fsanitize=address,undefined)
 endif()
 add_test(NAME bench_relay_tests COMMAND bench_relay_tests)
+
+# Compile the production entrypoint and board adapter unchanged against test-only
+# SDK declarations. GNU-compatible time wrapping supplies deterministic UTC.
+# Each scenario is a separate process so no previous boot's RAM is retained.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    set(runtime_sdk_headers
+        freertos/FreeRTOS.h freertos/semphr.h freertos/queue.h driver/gpio.h nvs.h
+        esp_timer.h esp_task_wdt.h esp_heap_caps.h esp_psram.h esp_system.h esp_random.h)
+    foreach(header IN LISTS runtime_sdk_headers)
+        file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/runtime-sdk/${header}"
+            CONTENT "#include \"runtime_sdk_stubs.hpp\"\n")
+    endforeach()
+    add_executable(firmware_runtime_tests runtime_tests.cpp ../main/app.cpp)
+    target_include_directories(firmware_runtime_tests PRIVATE . ../main "${CMAKE_CURRENT_BINARY_DIR}/runtime-sdk")
+    target_link_libraries(firmware_runtime_tests PRIVATE controller)
+    target_compile_options(firmware_runtime_tests PRIVATE -Wall -Wextra -Werror -Wpedantic)
+    target_link_options(firmware_runtime_tests PRIVATE -Wl,--wrap=time)
+    foreach(scenario boot armed_boot asleep_boot disabled uncommissioned dry_run
+            latch_failure setup_failure usb_task_failure storage_failure allocation_monitor_failure
+            queue_creation_failure psram_failure
+            watchdog_add_failure queue_overflow lease_expiry gpio_failure off_during_io
+            control_deadline watchdog_feed_failure recoverable_allocation)
+        add_test(NAME runtime_${scenario} COMMAND firmware_runtime_tests ${scenario})
+    endforeach()
+endif()
