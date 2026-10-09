@@ -93,15 +93,13 @@ TEST(report_mode_client_parser_policy_authorize_then_reject_duplicate_and_depart
     o=fix(epoch+602,4);REQUIRE(f.client.poll(c,1,o)==Error::None);p.observe(o,602000,epoch+602,true);
     REQUIRE(!p.tick(602000).auto_home);REQUIRE(!p.tick(602000).commanded);
 }
-TEST(recorded_timestamp_pair_in_synthetic_envelope_obeys_selected_basis_and_age) {
-    // Only these numeric timestamps come from the independent 2026-10-04
-    // capture. Envelope, VIN, coordinates, status and credentials are synthetic;
-    // this is not a replay of the complete original/private HTTP response.
+TEST(synthetic_invalid_gps_and_valid_report_obey_selected_basis_and_age) {
+    // Fully synthetic numbers exercise the distinction without retaining a live capture.
     constexpr int64_t completion_utc=1800000000;
-    const std::string recorded_numbers=R"({"response":{"vin":"5YJ3E1EA7KF000001","drive_state":{"latitude":0,"longitude":0,"gps_as_of":-123456789,"timestamp":1800000000643}}})";
+    const std::string synthetic_numbers=R"({"response":{"vin":"5YJ3E1EA7KF000001","drive_state":{"latitude":0,"longitude":0,"gps_as_of":-123456789,"timestamp":1800000000643}}})";
     Fixture strict;strict.io.utc_base=completion_utc;
     strict.io.replies={{Endpoint::Refresh,200,token},{Endpoint::Status,200,online},
-                       {Endpoint::Location,200,recorded_numbers,Error::None,"","",completion_utc}};
+                       {Endpoint::Location,200,synthetic_numbers,Error::None,"","",completion_utc}};
     auto strict_observation=fix(completion_utc);
     REQUIRE(strict.client.poll(config(),1,strict_observation)==Error::SourceTime);
     Policy strict_policy;strict_policy.configure(config(),1,0);
@@ -113,7 +111,7 @@ TEST(recorded_timestamp_pair_in_synthetic_envelope_obeys_selected_basis_and_age)
     Fixture report;report.io.utc_base=completion_utc;
     auto c=config();c.position_basis=uint8_t(PositionBasis::VehicleReport);
     report.io.replies={{Endpoint::Refresh,200,token},{Endpoint::Status,200,online},
-                       {Endpoint::Location,200,recorded_numbers,Error::None,"","",completion_utc}};
+                       {Endpoint::Location,200,synthetic_numbers,Error::None,"","",completion_utc}};
     auto observation=fix(completion_utc);
     REQUIRE(report.client.poll(c,1,observation)==Error::None);
     REQUIRE(observation.source_s==completion_utc);
@@ -125,7 +123,7 @@ TEST(recorded_timestamp_pair_in_synthetic_envelope_obeys_selected_basis_and_age)
 
     report.io.elapsed=121000;
     report.io.replies={{Endpoint::Status,200,online},
-        {Endpoint::Location,200,recorded_numbers,Error::None,"","",completion_utc+121}};
+        {Endpoint::Location,200,synthetic_numbers,Error::None,"","",completion_utc+121}};
     observation=fix(completion_utc+121,2);
     REQUIRE(report.client.poll(c,1,observation)==Error::None);
     REQUIRE(observation.source_s==completion_utc); // Later receipt cannot refresh it.
