@@ -144,9 +144,12 @@ static void setup(void*) {
         if(!critical_fault)configure(profile.config,startup_generation,saved,source);
         if(!start_auto_storage())fail("auto_storage_task");
         if(!provisioning) {
+            // Reserve the largest internal-RAM stack before Wi-Fi/HTTPS split
+            // the remaining heap into blocks too small for its 64 KiB allocation.
+            // The worker cannot contact Fleet before Wi-Fi/time/config are ready.
+            start_tesla(profile);
             start_wifi(profile);
             if(!start_management(profile))fail("https_start");
-            start_tesla(profile);
         }
     } else if(r==ReadResult::Ok)fail("profile_validation");
     setup_complete=true;

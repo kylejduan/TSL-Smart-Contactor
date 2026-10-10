@@ -446,6 +446,11 @@ acknowledgements as failures and rejects JSON numbers overflowing to infinity.
 
 ## Firmware updates
 
+Startup reserves the 64 KiB internal Tesla worker stack before Wi-Fi and HTTPS
+allocate their buffers. Starting it after those services can fail despite ample
+total free RAM because no contiguous block remains. Its normal configuration,
+DISABLED, UTC and connectivity gates still prevent premature Fleet requests.
+
 `FirmwareUpdate` is the bounded native transfer guard; `main/ota.cpp` owns the
 ESP-IDF flash adapter and startup confirmation. It uses a separate worker, one
 4 KiB RAM buffer and strict upload offsets. The existing authenticated HTTP task

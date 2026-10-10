@@ -125,3 +125,16 @@ migration, real authenticated wireless upload, interrupted transfer, pending-boo
 reset/rollback, physical GPIO/COM–NO behavior and measured flash-load scheduling
 remain manual checks in [ota.md](ota.md#verification). No firmware was installed,
 relay energized, live API query made or billing setting changed by these checks.
+
+## OTA startup allocation correction (0.2.1)
+
+The Tesla worker's 64 KiB internal stack is now reserved before Wi-Fi/HTTPS
+allocations fragment the heap. A production-entrypoint regression scenario
+models a remaining 48 KiB contiguous block after networking starts, while keeping
+total free memory separate from allocation feasibility. All 57 CTest entries
+with ASan/UBSan and 66 Python tests pass. The ESP32-S3 production build and real
+RSA signing/bundle checks pass with the same pinned SDK. Image content is
+1,054,575 bytes; the signed image remains 1,118,208 bytes. The change does not
+alter GPIO, authentication, configuration, polling or billing limits. Synthetic
+allocation tests cannot measure actual RAM fragmentation or flash timing;
+per-device integration results remain private.

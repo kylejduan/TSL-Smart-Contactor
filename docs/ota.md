@@ -1,6 +1,6 @@
 # Local signed firmware updates
 
-Firmware 0.2.0 adds application-only OTA through the controller's local HTTPS
+Firmware 0.2.1 provides application-only OTA through the controller's local HTTPS
 page. There is no update server, background release check, port forwarding, Fleet
 request or new paid service. Each installation owns its signing key. Downloaded
 open-source binaries cannot be installed until reviewed and signed with that key.
@@ -56,7 +56,7 @@ profile remain in their original NVS range. First select AUTO deliberately when
 ready; hold-last versus expiry remains the previously selected setting.
 
 After reboot, inspect USB status/diagnostics and sign in locally. The Firmware
-section must report 0.2.0, `ota_0`, and updater availability. Leave mains isolated
+section must report the installed release version, `ota_0`, and updater availability. Leave mains isolated
 for the first supervised wireless update and rollback/interruption checks.
 For USB updater diagnostics use `python tools/onboard.py usb firmware_status --port PORT`.
 Measure COM–NO and control scheduling under flash load; a build cannot prove

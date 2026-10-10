@@ -125,7 +125,7 @@ void process(const char* input) {
     if(!j.parse(input)) {send("{\"ok\":false,\"error\":\"invalid_json\"}");return;}
     int op=j.get(0,"op");
     if(j.equal(op,"hello")) {
-        send("{\"protocol\":2,\"board\":\"ESP32-S3-Relay-1CH\",\"firmware\":\"0.2.0\",\"firmware_ota\":true,\"secrets_echoed\":false}");return;
+        send("{\"protocol\":2,\"board\":\"ESP32-S3-Relay-1CH\",\"firmware\":\"0.2.1\",\"firmware_ota\":true,\"secrets_echoed\":false}");return;
     }
     if(j.equal(op,"diagnostics")) {diagnostics();return;}
     if(j.equal(op,"firmware_status")) {

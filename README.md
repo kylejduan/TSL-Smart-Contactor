@@ -62,7 +62,7 @@ in `tools/requirements.txt`.
 
 `build/tsl_smart_contactor.bin` is the application, not a standalone full-flash
 image. Builds are unsigned; sign the application with your installation key before
-deployment. Firmware 0.2.0 provides local authenticated, signed OTA with two app
+deployment. Firmware 0.2.1 provides local authenticated, signed OTA with two app
 slots and startup rollback. Existing factory-layout installations need one
 USB migration; follow [OTA signing, migration and recovery](docs/ota.md). Preserve
 NVS and never use `erase-flash` as an automatic troubleshooting step. Do not flash

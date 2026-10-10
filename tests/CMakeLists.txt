@@ -41,7 +41,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Cla
     target_link_libraries(firmware_runtime_tests PRIVATE controller)
     target_compile_options(firmware_runtime_tests PRIVATE -Wall -Wextra -Werror -Wpedantic)
     target_link_options(firmware_runtime_tests PRIVATE -Wl,--wrap=time)
-    foreach(scenario ota_abort_dwell ota_user_off boot armed_boot asleep_boot disabled uncommissioned dry_run
+    foreach(scenario tesla_stack_reservation ota_abort_dwell ota_user_off boot armed_boot asleep_boot disabled uncommissioned dry_run
             latch_failure setup_failure usb_task_failure firmware_task_failure storage_failure allocation_monitor_failure
             queue_creation_failure psram_failure
             watchdog_add_failure queue_overflow lease_expiry gpio_failure off_during_io

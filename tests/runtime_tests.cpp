@@ -29,6 +29,8 @@ struct Simulation {
     bool driver = false, gpio = false, missing_profile = false;
     bool latch_failure = false, setup_failure = false, psram_failure = false;
     bool ota_failure=false;
+    bool fragmented_stack_test=false,tesla_started=false;
+    size_t contiguous_task_bytes=90*1024;
     bool usb_failure = false, storage_failure = false, monitor_failure = false, queue_failure = false;
     bool high_failure = false, watchdog_add_failure = false, watchdog_feed_failure = false;
     bool send_home = false, send_sleep = false, overflow = false;
@@ -210,6 +212,7 @@ ReadResult load_profile(Profile& profile) {
 bool valid_profile(const Profile& profile) { return valid_config(profile.config); }
 void usb_task(void*) { throw std::runtime_error("unexpected USB task execution"); }
 void start_wifi(const Profile&) {
+    if(sim.fragmented_stack_test)sim.contiguous_task_bytes=48*1024;
     wifi_connected = true;
     utc_synced = true;
     utc_continuity = true;
@@ -217,6 +220,8 @@ void start_wifi(const Profile&) {
 }
 bool start_management(Profile&) { return true; }
 void start_tesla(const Profile&) {
+    if(sim.fragmented_stack_test && sim.contiguous_task_bytes<65536) {fail("tesla_task");return;}
+    sim.tesla_started=true;
     if (sim.send_home) home();
     if (sim.send_sleep) {
         tsl::Observation asleep;
@@ -255,6 +260,7 @@ int main(int argc, char** argv) {
             if(scenario=="held_saved_corrupt")sim.saved.crc^=1;
         }
         if (scenario == "boot") sim.missing_profile = true;
+        else if(scenario=="tesla_stack_reservation") {sim.fragmented_stack_test=true;cfg.disabled=true;}
         else if(scenario.rfind("held_saved_",0)==0) {
             sim.advance=[](tsl::Ms) {app::wifi_connected=false;app::utc_synced=false;app::utc_continuity=false;};
         }
@@ -368,6 +374,7 @@ int main(int argc, char** argv) {
         else if (scenario == "watchdog_feed_failure") { expect_fault("watchdog_feed"); CHECK(ever_on()); }
         else {
             CHECK(!app::critical_fault);
+            if(scenario=="tesla_stack_reservation")CHECK(sim.tesla_started);
             if(scenario=="held_saved_home") {
                 CHECK(sim.gpio && app::snapshot().decision.restored && app::snapshot().decision.retained);
                 CHECK(sim.edges[1]==std::make_pair(tsl::Ms(30000),true));
