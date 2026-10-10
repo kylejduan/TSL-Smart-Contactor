@@ -28,7 +28,7 @@ MAX_REPLY = 16384
 MAX_LOG = 32 * 1024 * 1024
 REASONS = set("uncommissioned user_disabled critical_local_fault no_auto_authorization "
               "auto_home_lease auto_home_retained auto_state_commit_pending timed_override_bypasses_presence minimum_off_dwell "
-              "dry_run_output_inhibited utc_not_ready unknown".split())
+              "dry_run_output_inhibited firmware_update_output_inhibited utc_not_ready unknown".split())
 ERRORS = set("none transport timeout response_too_large malformed_data gps_source_time_unusable "
              "vehicle_report_time_unusable authentication missing_permission rate_limit billing "
              "vehicle_unavailable server redirect_rejected local_request_cap storage_fault "

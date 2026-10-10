@@ -40,6 +40,23 @@ class Reply:
 
 
 class ObserverTests(unittest.TestCase):
+    def test_ota_inhibition_keeps_home_evidence_and_redacts_status_and_events(self):
+        document = dict(status(), gpio_command="OFF commanded",
+                        reason="firmware_update_output_inhibited")
+        safe = observer.safe_status(document)
+        self.assertTrue(safe["auto_home"])
+        self.assertEqual(safe["gpio_command"], "OFF commanded")
+        self.assertEqual(safe["reason"], "firmware_update_output_inhibited")
+        event = {"uptime_s": 100, "reason": document["reason"],
+                 "commanded_on": False, "token": "synthetic-secret"}
+        events = observer.safe_events({"events": [event]})
+        self.assertFalse(events[0]["commanded_on"])
+        self.assertEqual(events[0]["reason"], document["reason"])
+        output = json.dumps({"status": safe, "events": events})
+        self.assertNotIn("synthetic-secret", output)
+        self.assertNotIn("synthetic-private-vin", output)
+        self.assertNotIn("home_lat", output)
+
     def test_retained_home_is_distinct_from_fresh_lease_without_exposing_secrets(self):
         document=dict(status(),outage_policy="hold_last",auto_retained=True,
                       reason="auto_home_retained",lease_s=0)
