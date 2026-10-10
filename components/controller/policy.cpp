@@ -125,7 +125,7 @@ void Policy::observe(const Observation& o, Ms now, int64_t utc, bool clock_valid
     lease_ = now + Ms(config_.lease_s)*1000 - age;
     ceiling_ = now + Ms(config_.sleep_s)*1000 - age;
 }
-Decision Policy::tick(Ms now, bool auto_commit_ready) {
+Decision Policy::tick(Ms now, bool auto_commit_ready, bool output_inhibited) {
     expire(now);
     Decision d;
     d.auto_home = home_ && (now < lease_ || effective_outage_policy(config_)==OutagePolicy::HoldLast);
@@ -142,7 +142,8 @@ Decision Policy::tick(Ms now, bool auto_commit_ready) {
     else {
         d.desired = true;
         d.reason = d.timed ? Reason::Timed : d.retained ? Reason::HomeRetained : Reason::Home;
-        if (!d.timed && !auto_commit_ready) d.reason = Reason::HomePending;
+        if (output_inhibited) d.reason = Reason::FirmwareUpdate;
+        else if (!d.timed && !auto_commit_ready) d.reason = Reason::HomePending;
         else if (!commanded_ && now-off_since_ < Ms(config_.dwell_s)*1000) d.reason = Reason::OffDwell;
         else if (config_.dry_run) d.reason = Reason::DryRun;
         else d.commanded = true;
@@ -178,6 +179,7 @@ const char* reason_name(Reason r) {
     case Reason::OffDwell: return "minimum_off_dwell";
     case Reason::DryRun: return "dry_run_output_inhibited";
     case Reason::ClockInvalid: return "utc_not_ready";
+    case Reason::FirmwareUpdate: return "firmware_update_output_inhibited";
     }
     return "unknown";
 }

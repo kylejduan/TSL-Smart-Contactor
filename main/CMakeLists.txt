@@ -2,10 +2,10 @@ if(TSL_USB_RELAY_BENCH)
     idf_component_register(SRCS "bench_relay.cpp" INCLUDE_DIRS "."
         REQUIRES esp_driver_gpio esp_driver_usb_serial_jtag esp_timer esp_system esp_hw_support freertos)
 else()
-    idf_component_register(SRCS "app.cpp" "auto_state.cpp" "storage.cpp" "network.cpp" "wifi_scan.cpp" "tesla.cpp" "management.cpp" "usb.cpp"
+    idf_component_register(SRCS "app.cpp" "auto_state.cpp" "ota.cpp" "storage.cpp" "network.cpp" "wifi_scan.cpp" "tesla.cpp" "management.cpp" "usb.cpp"
     INCLUDE_DIRS "." REQUIRES controller esp_driver_gpio esp_driver_usb_serial_jtag
-    esp_psram esp_wifi esp_netif esp_event esp-tls esp_https_server nvs_flash mbedtls esp_timer esp_system esp_app_format lwip
-    EMBED_TXTFILES "index.html" "style.css" "app.js")
+    esp_psram esp_wifi esp_netif esp_event esp-tls esp_https_server nvs_flash mbedtls esp_timer esp_system esp_app_format app_update bootloader_support lwip
+    EMBED_TXTFILES "index.html" "style.css" "app.js" "firmware.js")
 endif()
 target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)
 target_compile_options(${COMPONENT_LIB} PRIVATE -Wall -Wextra -Werror)

@@ -1,5 +1,6 @@
 #include "storage.hpp"
 #include "network.hpp"
+#include "ota.hpp"
 #include "driver/usb_serial_jtag.h"
 #include "esp_random.h"
 #include "esp_system.h"
@@ -124,9 +125,15 @@ void process(const char* input) {
     if(!j.parse(input)) {send("{\"ok\":false,\"error\":\"invalid_json\"}");return;}
     int op=j.get(0,"op");
     if(j.equal(op,"hello")) {
-        send("{\"protocol\":2,\"board\":\"ESP32-S3-Relay-1CH\",\"firmware\":\"0.1.0\",\"secrets_echoed\":false}");return;
+        send("{\"protocol\":2,\"board\":\"ESP32-S3-Relay-1CH\",\"firmware\":\"0.2.0\",\"firmware_ota\":true,\"secrets_echoed\":false}");return;
     }
     if(j.equal(op,"diagnostics")) {diagnostics();return;}
+    if(j.equal(op,"firmware_status")) {
+        char response[512]={};
+        if(ota_status_json(response,sizeof response))send(response);
+        else send("{\"ok\":false,\"error\":\"status_unavailable\"}");
+        return;
+    }
     if(j.equal(op,"status")) {
         auto s=snapshot();char b[512]={};
         std::snprintf(b,sizeof b,"{\"outage_policy\":\"%s\",\"auto_retained\":%s,\"auto_restored\":%s,\"auto_state_pending\":%s,\"position_basis\":\"%s\",\"config_version\":%lu,\"generation\":%lu,\"ready\":%s,\"commissioned\":%s,\"disabled\":%s,\"dry_run\":%s,\"commanded_on\":%s,\"fault\":%s}",

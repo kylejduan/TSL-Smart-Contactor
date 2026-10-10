@@ -64,6 +64,7 @@ class Hardware:
     def __init__(self, port, expected_mac):
         self.port = port
         self.expected_mac = expected_mac
+        self.app_offset = APP_OFFSET
 
     def production(self):
         state = usb_exchange(self.port, {"op": "status"}, timeout=5)
@@ -71,6 +72,13 @@ class Hardware:
         hello = usb_exchange(self.port, {"op": "hello"}, timeout=5)
         if hello.get("board") != "ESP32-S3-Relay-1CH":
             raise BenchError("Unexpected board")
+        if hello.get("firmware_ota"):
+            update = usb_exchange(self.port, {"op": "firmware_status"}, timeout=5)
+            slots = {"ota_0": "0x30000", "ota_1": "0x330000"}
+            if (update.get("available") is not True or update.get("busy") is not False or
+                    update.get("boot_check") not in ("normal", "confirmed", "previous_update_failed") or update.get("slot") not in slots):
+                raise BenchError("OTA boot state is not ready for an isolated diagnostic")
+            self.app_offset = slots[update["slot"]]
         inhibited(state, diagnostic, self.expected_mac)
         return state
 
@@ -79,7 +87,7 @@ class Hardware:
         subprocess.run([sys.executable, "-m", "esptool", "--chip", "esp32s3",
                         "--port", self.port, "--baud", "460800", "--before",
                         "default_reset", "--after", "hard_reset", operation,
-                        APP_OFFSET, str(path)], check=True, timeout=120)
+                        self.app_offset, str(path)], check=True, timeout=120)
 
     def bench(self, command):
         import serial

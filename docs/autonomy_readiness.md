@@ -107,8 +107,9 @@ Long-term maintenance remains necessary: the local leaf certificate is issued fo
 825 days and its local CA for 3,650 days; renewal is a deliberate USB setup action.
 Tesla's refresh tokens expire after three months without successful replacement;
 long DISABLED periods or extended outages can therefore require consent again.
-The TLS trust bundle and SDK/security fixes are firmware-pinned and require USB
-updates. There is no OTA updater or remote monitoring service, by design.
+The TLS trust bundle and SDK/security fixes are firmware-pinned. Application updates
+can use the [local signed OTA updater](ota.md) after the initial USB migration;
+bootloader/layout changes still require USB. There is no remote monitoring service.
 
 Primary contracts rechecked for this audit:
 [Tesla token reuse and expiry](https://developer.tesla.com/docs/fleet-api/authentication/third-party-tokens),

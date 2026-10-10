@@ -1,5 +1,6 @@
 #include "runtime.hpp"
 #include "storage.hpp"
+#include "ota.hpp"
 #include "board.hpp"
 #include "control_epoch.hpp"
 #include "esp_timer.h"
@@ -50,13 +51,13 @@ uint32_t inhibit() {
 }
 bool inhibit_current(uint32_t expected,uint32_t& acquired) {
     portENTER_CRITICAL(&lock);
-    bool ok=!provisioning && control_epoch.begin(expected,acquired);
+    bool ok=!provisioning && !firmware_busy && control_epoch.begin(expected,acquired);
     if(ok)inhibit_locked();
     portEXIT_CRITICAL(&lock);return ok;
 }
 bool begin_provision(uint32_t expected,uint32_t& acquired) {
     portENTER_CRITICAL(&lock);
-    bool ok=expected ? control_epoch.begin(expected,acquired) : true;
+    bool ok=!firmware_busy && (expected ? control_epoch.begin(expected,acquired) : true);
     if(ok) {
         if(!expected)acquired=control_epoch.cancel();
         inhibit_locked();provisioning=true;
@@ -90,7 +91,7 @@ void auto_commit_ack(const Snapshot& committed) {
 }
 bool timed(uint32_t seconds,uint32_t epoch) {
     portENTER_CRITICAL(&lock);
-    bool ok=state.ready && !state.inhibited && !state.config.disabled && state.config.commissioned &&
+    bool ok=!firmware_busy && state.ready && !state.inhibited && !state.config.disabled && state.config.commissioned &&
         control_epoch.matches(epoch) && seconds>0 && seconds<=28800;
     if(ok) {timed_seconds=seconds;timed_epoch=epoch;pending_timed=true;}
     portEXIT_CRITICAL(&lock);return ok;
@@ -129,6 +130,7 @@ static void setup(void*) {
     // Provisioning nests certificate validation and NVS writes. Keep measured
     // headroom beyond their buffers; the USB diagnostics expose the watermark.
     if(xTaskCreate(usb_task,"usb_provision",32768,nullptr,2,nullptr)!=pdPASS)fail("setup_or_usb_task");
+    if(!start_ota())fail("ota_task");
     if(r==ReadResult::Ok && valid_profile(profile) && !critical_fault) {
         AutoState saved=AutoState::Unknown;
         int64_t source=0;
@@ -147,6 +149,7 @@ static void setup(void*) {
             start_tesla(profile);
         }
     } else if(r==ReadResult::Ok)fail("profile_validation");
+    setup_complete=true;
     vTaskDelete(nullptr);
 }
 }
@@ -154,6 +157,7 @@ extern "C" void app_main() {
     using namespace app;
     // app_main remains the ONE control task and the only owner of this GPIO.
     if(!board::initialize_off())fail("gpio_init");
+    ota_boot_initialize();
     // Do not reuse a predictable generation from a previous boot's client page.
     // This is a command-order marker, separate from authentication/session keys.
     control_epoch=ControlEpoch(esp_random());
@@ -204,9 +208,9 @@ extern "C" void app_main() {
         const auto committed=snapshot();
         bool commit_ready=effective_outage_policy(committed.config)!=OutagePolicy::HoldLast ||
             (committed.auto_saved_generation==policy.generation() && committed.auto_saved==AutoState::Home);
-        Decision d=policy.tick(now,commit_ready);
+        Decision d=policy.tick(now,commit_ready,firmware_busy);
         portENTER_CRITICAL(&lock);
-        if(state.inhibited || !control_epoch.matches(policy.generation()) || critical_fault || provisioning)d.commanded=false;
+        if(state.inhibited || !control_epoch.matches(policy.generation()) || critical_fault || provisioning || firmware_busy)d.commanded=false;
         if(!board::command(d.commanded)) {fail("gpio_command");board::command(false);d.commanded=false;}
         state.decision=d;state.utc_ok=evidence_time_ok;
         if(d.reason!=last_reason || d.commanded!=last_command) {

@@ -1,6 +1,7 @@
 #include "runtime_sdk_stubs.hpp"
 #include "runtime.hpp"
 #include "storage.hpp"
+#include "ota.hpp"
 #include "auto_journal.hpp"
 #include <algorithm>
 #include <cstring>
@@ -27,6 +28,7 @@ struct Simulation {
     tsl::Ms now = 0, until = 30200;
     bool driver = false, gpio = false, missing_profile = false;
     bool latch_failure = false, setup_failure = false, psram_failure = false;
+    bool ota_failure=false;
     bool usb_failure = false, storage_failure = false, monitor_failure = false, queue_failure = false;
     bool high_failure = false, watchdog_add_failure = false, watchdog_feed_failure = false;
     bool send_home = false, send_sleep = false, overflow = false;
@@ -168,6 +170,9 @@ std::size_t esp_psram_get_size() { return 8 * 1024 * 1024; }
 std::uint32_t esp_random() { return 12345; }
 esp_reset_reason_t esp_reset_reason() {return sim.reset;}
 namespace app {
+std::atomic<bool> firmware_busy{false},setup_complete{false};
+void ota_boot_initialize() {}
+bool start_ota() {return !sim.ota_failure;}
 NvsStore& storage() { static NvsStore store; return store; }
 bool NvsStore::initialize() { sim.startup.emplace_back("storage"); return !sim.storage_failure; }
 ReadResult NvsStore::read(const char* key, void* out, std::size_t size) {
@@ -261,6 +266,17 @@ int main(int argc, char** argv) {
                 if(now==30050) {CHECK(!sim.gpio);app::inhibit();sim.block_commit=false;}
             };
         }
+        else if(scenario.rfind("ota_",0)==0) {
+            sim.send_home=true;sim.until=80200;
+            sim.advance=[&](tsl::Ms now) {
+                if(now==40000) {CHECK(sim.gpio);app::firmware_busy=true;}
+                if(now==40100)CHECK(!sim.gpio && app::snapshot().decision.auto_home);
+                if(now==45000 && scenario=="ota_user_off")app::inhibit();
+                if(now==50000)app::firmware_busy=false;
+                if(now==69950)CHECK(!sim.gpio);
+                if(now==70100)CHECK(sim.gpio==(scenario!="ota_user_off"));
+            };
+        }
         else if (scenario == "armed_boot" || scenario == "held_boot") {} // No reusable HOME state.
         else if (scenario == "asleep_boot" || scenario == "held_asleep_boot") sim.send_sleep = true;
         else if (scenario == "disabled") { cfg.disabled = true; sim.send_home = true; }
@@ -269,6 +285,7 @@ int main(int argc, char** argv) {
         else if (scenario == "latch_failure") sim.latch_failure = true;
         else if (scenario == "setup_failure") sim.setup_failure = true;
         else if (scenario == "usb_task_failure") sim.usb_failure = true;
+        else if (scenario == "firmware_task_failure")sim.ota_failure=true;
         else if (scenario == "storage_failure") sim.storage_failure = true;
         else if (scenario == "allocation_monitor_failure") sim.monitor_failure = true;
         else if (scenario == "queue_creation_failure") sim.queue_failure = true;
@@ -328,8 +345,15 @@ int main(int argc, char** argv) {
         CHECK(sim.startup.front() == "latch_off");
         if (scenario != "latch_failure") CHECK(sim.startup[1] == "output_driver");
         if (scenario == "latch_failure") { expect_fault("gpio_init"); CHECK(!sim.driver); }
+        else if(scenario.rfind("ota_",0)==0) {
+            CHECK(ever_on());
+            CHECK(app::snapshot().decision.commanded==(scenario!="ota_user_off"));
+            CHECK(app::snapshot().config.disabled==(scenario=="ota_user_off"));
+            CHECK(!app::critical_fault);
+        }
         else if (scenario == "setup_failure") expect_fault("setup_or_usb_task");
         else if (scenario == "usb_task_failure") expect_fault("setup_or_usb_task");
+        else if (scenario == "firmware_task_failure")expect_fault("ota_task");
         else if (scenario == "storage_failure") expect_fault("storage_init");
         else if (scenario == "allocation_monitor_failure") expect_fault("allocation_monitor");
         else if (scenario == "queue_creation_failure") expect_fault("setup_or_usb_task");

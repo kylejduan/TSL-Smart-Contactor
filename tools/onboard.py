@@ -101,7 +101,7 @@ def usb(args):
         if type(generation) is not int or not 1 <= generation <= 0xffffffff:
             raise SetupError("USB status lacks a valid generation; update the firmware before this command.")
         request["generation"] = generation
-    if args.command not in {"hello", "status", "diagnostics", "wifi_scan"}:
+    if args.command not in {"hello", "status", "diagnostics", "firmware_status", "wifi_scan"}:
         request["password"] = hidden("Local administrator password: ")
     confirmations = {
         "arm": "USB_BENCH_POLARITY_AND_STARTUP_VERIFIED",
@@ -137,7 +137,7 @@ def usb(args):
     # Read-only metadata replies predate the action acknowledgement envelope.
     # Actions must positively acknowledge success; never let a rejected OFF or
     # recovery operation appear successful to the calling shell.
-    expects_ack = args.command not in {"hello", "status", "diagnostics"}
+    expects_ack = args.command not in {"hello", "status", "diagnostics", "firmware_status"}
     if (expects_ack or "ok" in result) and result.get("ok") is not True:
         messages = {
             "authentication_required": "USB authentication failed; check the local administrator password.",
@@ -164,7 +164,7 @@ def main():
     runtime.add_argument("--port", required=True)
     command = commands.add_parser("usb", help="Explicit USB management, no flashing")
     command.add_argument("--port", required=True)
-    command.add_argument("command", choices=["hello", "status", "diagnostics", "wifi_scan", "wifi_update", "off", "auto", "timed_on", "arm", "enable_output", "reboot"])
+    command.add_argument("command", choices=["hello", "status", "diagnostics", "firmware_status", "wifi_scan", "wifi_update", "off", "auto", "timed_on", "arm", "enable_output", "reboot"])
     command.add_argument("--seconds", type=int, default=3600)
     args = parser.parse_args()
     try:

@@ -92,3 +92,36 @@ reports 1,034,143 bytes of image content (1,034,256 bytes in the padded binary),
 within the 3 MiB application partition.
 These are software checks, not live outage/power-recovery or electrical tests.
 The policy must be explicitly selected after installing compatible firmware.
+
+
+## Signed OTA software verification (0.2.0)
+
+The application-only OTA implementation passes all 56 CTest entries with
+ASan/UBSan: 133 core cases, nine bench-protocol cases, 40 production control
+scenarios and 14 executions of the real OTA adapter with fake SDK flash/boot APIs.
+The 66 Python tests and 18 synthetic browser scenarios pass. Tests cover bounded
+sequential uploads, source/generation cancellation, OFF/dwell behavior, flash
+write and ambiguous boot-selection failures, missing profiles, startup timeout,
+update-task allocation failure and rollback requests. HTTP browser fixtures model
+server responses; they do not substitute for an embedded HTTPS integration test.
+
+Production and isolated bench targets compile with ESP-IDF v5.5.2 and esptool
+4.12.0. The production image content is 1,054,583 bytes; SDK secure padding makes
+the unsigned build 1,114,112 bytes, and the RSA-signed deployment image is
+1,118,208 bytes, fitting either 3 MiB slot. Both builds leave hardware secure boot,
+flash encryption and anti-rollback disabled. The SDK TLS cleanup checks still pass.
+
+`python tools/test_signed_firmware.py --build build-ota` verifies signatures and
+the exact migration layout using the actual build and ephemeral synthetic keys.
+Wrong-key, modified, truncated and unsigned images are rejected. Verification
+also checks that the SDK metadata-derived signature offset matches the signed
+sector. Injected USB migration tests check protected backups, exact NVS/PHY
+preservation, 4 KiB write boundaries and refusal of unsupported layouts/security.
+The signing helpers never contact hardware or Tesla. CI runs the additional SDK
+signing check after its production build.
+
+These results do not establish hardware OTA readiness. The isolated first USB
+migration, real authenticated wireless upload, interrupted transfer, pending-boot
+reset/rollback, physical GPIO/COM–NO behavior and measured flash-load scheduling
+remain manual checks in [ota.md](ota.md#verification). No firmware was installed,
+relay energized, live API query made or billing setting changed by these checks.

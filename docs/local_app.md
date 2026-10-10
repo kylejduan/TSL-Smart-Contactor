@@ -168,3 +168,14 @@ redacted export, hostile text, event fetch failure, fault-state sign-out, sessio
 expiry, local-only countdowns, and desktop/mobile overflow checks. These are UI
 checks; native tests exercise production policy/client/storage logic, and actual
 ESP32 HTTPS/USB checks remain separate from the synthetic server.
+
+
+## Firmware updates
+
+The Firmware section supports explicit local signed application uploads. It uses
+the same in-memory session, Origin/CSRF checks and command precedence as other
+state changes. Every chunk is bounded to 4 KiB. OFF stays available; mode/settings
+changes are rejected during installation. The signed application is verified
+before boot selection. Credentials and AUTO settings are not sent to or embedded
+in the upload file. See [OTA setup and recovery](ota.md); the first migration is
+USB-only and subsequent updates need the installation's signing key.

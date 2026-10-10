@@ -216,7 +216,7 @@ can consume the account discount; Tesla billing remains authoritative. See
 [billing/discount](https://developer.tesla.com/docs/fleet-api/billing-and-limits).
 
 Use firmware that supports a 600-second maximum age. Older images may reject
-that setting. There is no OTA or live-powered flashing workflow. Changing basis is authenticated, clears old evidence/overrides and
+that setting. Application OTA is available after the explicit [USB layout migration](ota.md). Changing basis is authenticated, clears old evidence/overrides and
 fences outstanding results; it does not bypass the existing scheduler embargo.
 
 New configuration records use schema 3. The record remains 88 bytes; a schema 1
@@ -413,7 +413,8 @@ identity, coordinates and all credentials. Host-only browser fixtures never ente
 the firmware build or production transport.
 
 The log remains bounded and volatile. No unbounded flash logs,
-recovery AP, BLE, RS485 controls, OTA or factory services are enabled.
+recovery AP, BLE, RS485 controls or factory services are enabled. Authenticated
+local application OTA is described in [ota.md](ota.md).
 
 For diagnostic observation, `tools/observe_controller.py` can sample authenticated
 local status/events onto a computer. It has an explicit local route allowlist,
@@ -441,3 +442,26 @@ require the generation captured by the helper before hidden credential prompts.
 Old helpers are rejected safely; OFF/status/diagnostics retain their prior schema
 with the additive status generation. The helper treats negative/missing action
 acknowledgements as failures and rejects JSON numbers overflowing to infinity.
+
+
+## Firmware updates
+
+`FirmwareUpdate` is the bounded native transfer guard; `main/ota.cpp` owns the
+ESP-IDF flash adapter and startup confirmation. It uses a separate worker, one
+4 KiB RAM buffer and strict upload offsets. The existing authenticated HTTP task
+accepts commands/chunks; only the control task commands GPIO47. An atomic
+maintenance gate inhibits output without replacing AUTO state, and Policy sees
+the gate so abort recovery observes actual continuous OFF dwell. OFF/configuration
+generation changes cancel a transfer even after signature verification or boot
+selection. A failed boot selection is treated as an ambiguous commit and restores
+the running partition; a failed restoration raises a critical fault. The worker
+never feeds the control watchdog. Polling pauses through updates and startup
+confirmation; token/NVS rollback is never performed.
+
+NVS/PHY offsets are unchanged. `otadata` occupies the existing gap at 0x21000;
+`ota_0` begins at the original 0x30000 app address and `ota_1` at 0x330000. Both
+slots are 3 MiB and the configured flash remains 8 MiB. Official RSA signed-on-
+update checks and bootloader rollback are enabled; hardware secure boot,
+anti-rollback eFuses and automatic build signing are disabled. The local helper
+signs deployment bytes after building so no private key is needed in source or
+CI. See [OTA procedures and limitations](ota.md).

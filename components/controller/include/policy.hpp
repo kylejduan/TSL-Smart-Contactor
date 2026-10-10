@@ -46,7 +46,7 @@ struct Observation {
 };
 enum class Reason : uint8_t {
     Uncommissioned, Disabled, Fault, NoAuthorization, Home, Timed,
-    OffDwell, DryRun, ClockInvalid, HomeRetained, HomePending
+    OffDwell, DryRun, ClockInvalid, HomeRetained, HomePending, FirmwareUpdate
 };
 const char* reason_name(Reason r);
 const char* vehicle_name(Vehicle v);
@@ -70,7 +70,7 @@ public:
     void off(uint32_t generation, Ms now);
     bool timed_on(uint32_t seconds, Ms now);
     void observe(const Observation&, Ms now, int64_t utc_s, bool clock_valid);
-    Decision tick(Ms now, bool auto_commit_ready=true);
+    Decision tick(Ms now, bool auto_commit_ready=true, bool output_inhibited=false);
     void fault(Ms now);
     void clock_discontinuity(Ms now);
     uint32_t generation() const { return generation_; }

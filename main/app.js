@@ -12,6 +12,7 @@
     timed_override_bypasses_presence: 'A timed override is bypassing vehicle presence and connectivity.',
     minimum_off_dwell: 'Waiting for the minimum continuous OFF interval before energizing.',
     dry_run_output_inhibited: 'The policy requests ON, but dry-run keeps the physical relay OFF.',
+    firmware_update_output_inhibited: 'Firmware update is keeping the relay OFF. AUTO evidence is preserved.',
     utc_not_ready: 'Waiting for UTC synchronization before accepting location evidence.'
   };
   const errors = {
@@ -56,6 +57,12 @@
   let csrf = '', state = null, events = [], receivedAt = 0, dirty = false;
   let epoch = 0, refreshId = 0, pending = false, loginPending = false;
   let eventAvailable = false;
+  const firmware = window.setupFirmware({ call, message, confirm: confirmAction,
+    state: () => state, csrf: () => csrf, busy: () => pending, epoch: () => epoch,
+    current: token => token === epoch,
+    start: () => { pending = true; const token = ++epoch; ++refreshId; updateButtons(); return token; },
+    end: token => { if (token === epoch) { pending = false; updateButtons(); } }
+  });
   function passwordBytes(password) {
     const secret = new TextEncoder().encode(password);
     if (secret.length < 16 || secret.length > 128) {
@@ -162,6 +169,7 @@
   }
   function updateButtons() {
     if (!state) return;
+    firmware.buttons();
     const fault = state.fault || !state.ready;
     $('auto').disabled = pending || fault || state.mode === 'AUTO';
     $('timed').disabled = pending || fault || !state.commissioned || state.mode === 'DISABLED';
@@ -284,6 +292,8 @@
         events = history.events; eventAvailable = true;
       } catch (e) { if (startedEpoch !== epoch) return; events = []; eventAvailable = false; }
       renderEvents();
+      try { const update = await call('/api/firmware'); if (startedEpoch === epoch) firmware.render(update); }
+      catch (_) { if (startedEpoch === epoch) firmware.unavailable(); }
     } catch (e) {
       if (startedEpoch === epoch) { $('connection').textContent = 'Snapshot may be stale'; $('connection').className = 'badge warning'; }
       throw e;

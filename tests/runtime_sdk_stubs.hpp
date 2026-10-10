@@ -49,3 +49,5 @@ std::uint32_t esp_random();
 enum esp_reset_reason_t { ESP_RST_UNKNOWN, ESP_RST_POWERON, ESP_RST_EXT, ESP_RST_SW,
     ESP_RST_PANIC, ESP_RST_TASK_WDT, ESP_RST_BROWNOUT, ESP_RST_PWR_GLITCH };
 esp_reset_reason_t esp_reset_reason();
+
+void esp_fill_random(void*,std::size_t);

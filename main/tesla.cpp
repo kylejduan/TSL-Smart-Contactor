@@ -1,4 +1,5 @@
 #include "network.hpp"
+#include "ota.hpp"
 #include "storage.hpp"
 #include "client.hpp"
 #include "esp_random.h"
@@ -11,7 +12,7 @@ struct RuntimeIO : FleetIO {
     int64_t utc() const override {return time(nullptr);}
     bool ready() const override {return snapshot().utc_ok && wifi_connected;}
     bool current(uint32_t generation) const override {
-        auto s=snapshot();return s.generation==generation && !s.inhibited && !s.config.disabled && !provisioning;
+        auto s=snapshot();return s.generation==generation && !s.inhibited && !s.config.disabled && !provisioning && !firmware_busy;
     }
     void request(Endpoint e,const Config& c,const char* access,const char* form,HttpResult& result) override {
         app::request(e,c,access,form,result);
@@ -43,12 +44,12 @@ void worker(void* context) {
             client.clear_diagnostics();
         }
         if(check_requested.exchange(false))scheduler.check_now(now_ms());
-        if(!provisioning && !critical_fault && s.ready && !s.config.disabled) {
+        if(!firmware_busy && !provisioning && !critical_fault && s.ready && !s.config.disabled) {
             bool poll=scheduler.due(now_ms());
             bool refresh=client.refresh_due() && !scheduler.paused() && now_ms()>=auth_retry_after && io.ready();
             if(poll || refresh) {
                 network_busy=true;
-                if(provisioning) {network_busy=false;continue;}
+                if(provisioning || firmware_busy) {network_busy=false;continue;}
                 Observation o;o.generation=s.generation;o.request=++sequence;std::strcpy(o.vin,s.config.vin);
                 if(poll) {
                     scheduler.begin(now_ms());error=client.poll(s.config,s.generation,o);

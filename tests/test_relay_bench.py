@@ -135,6 +135,21 @@ class BenchWorkflowTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 bench.image(path, hashlib.sha256(bytes(100)).hexdigest())
 
+    def test_ota_bench_uses_running_slot_and_rejects_pending_boot(self):
+        state = dict(ready=True,disabled=True,commissioned=False,dry_run=True,commanded_on=False,fault=False)
+        diag = dict(station_mac="00:00:00:00:00:01",profile_integrity=True,token_state="usable",provision_pending=False)
+        hello = dict(board="ESP32-S3-Relay-1CH",firmware_ota=True)
+        update = dict(available=True,busy=False,boot_check="confirmed",slot="ota_1")
+        hw = bench.Hardware("FAKE",diag["station_mac"])
+        with patch.object(bench,"usb_exchange",side_effect=[state,diag,hello,update]):
+            hw.production()
+        with patch.object(bench.subprocess,"run") as run:
+            hw.esptool("verify_flash","synthetic.bin")
+            self.assertEqual(run.call_args.args[0][-2],"0x330000")
+        for changed in [dict(busy=True),dict(boot_check="pending_self_test"),dict(slot="factory"),dict(available=False)]:
+            with patch.object(bench,"usb_exchange",side_effect=[state,diag,hello,{**update,**changed}]):
+                with self.assertRaises(bench.BenchError):hw.production()
+
     def test_production_check_rejects_real_output_or_wrong_identity(self):
         state = {"ready": True, "disabled": True, "commissioned": False,
                  "dry_run": True, "commanded_on": False, "fault": False}

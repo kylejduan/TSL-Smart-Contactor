@@ -248,6 +248,7 @@ const fs = require('node:fs/promises');
       await fixture({ state: { fault: true, reason: 'critical_local_fault', fault_source: 'configuration_write', fleet_detail: '<img src=x onerror=alert(1)>', reauthorization_needed: true }, events_fail: true });
       await refresh(); await waitText('alert', 'Local fault');
       assert.equal(await page.locator('#auto').isDisabled(), true); assert.equal(await page.locator('#off').isEnabled(), true);
+      assert.equal(await page.locator('#firmware-install').isDisabled(), true);
       assert.equal(await page.locator('#fleet-status img').count(), 0); await waitText('events-empty', 'unavailable');
       await page.locator('#logout').click(); await page.locator('#login').waitFor({ state: 'visible' });
       assert.equal((await read()).state.fault, true); assert.equal(await page.locator('#setting-vin').inputValue(), '');
@@ -255,6 +256,39 @@ const fs = require('node:fs/promises');
     await run('session expiry clears private UI and requires another login', async () => {
       await reset({ session_left_s: 1 }); await page.locator('#login').waitFor({ state: 'visible', timeout: 4000 });
       await waitText('message', 'session expired'); assert.equal(await page.locator('#setting-vin').inputValue(), '');
+    });
+    await run('signed firmware upload confirms OFF and restart without Tesla requests', async () => {
+      await reset({commissioned:true,dry_run:false,mode:'AUTO',reason:'auto_home_lease',auto_home:true});
+      await waitText('firmware-status','Build ffffffffffff');
+      await page.locator('#firmware-file').setInputFiles({name:'synthetic-signed.bin',mimeType:'application/octet-stream',buffer:Buffer.alloc(8192)});
+      await page.locator('#firmware-install').click();await page.locator('#confirmation').waitFor({state:'visible'});
+      assert.match(await page.locator('#confirm-text').textContent(),/temporarily turns the outlet OFF/);
+      await page.locator('#confirm-accept').click();await waitText('message','Signed image accepted');
+      const f=await read();assert.equal(f.state.gpio_command,'OFF commanded');
+      assert.equal(f.commands.filter(c=>c.action==='begin').length,1);
+      assert.equal(f.commands.filter(c=>c.action==='finish').length,1);
+      assert.equal(f.commands.filter(c=>c.action==='check_now').length,0);
+    });
+    await run('firmware failure and malformed input never report success', async () => {
+      await reset({});await fixture({firmware_fail:true});
+      await page.locator('#firmware-file').setInputFiles({name:'truncated.bin',mimeType:'application/octet-stream',buffer:Buffer.alloc(8193)});
+      await page.locator('#firmware-install').click();await waitText('message','complete signature sector');
+      assert.equal((await read()).commands.length,0);
+      await page.locator('#firmware-file').setInputFiles({name:'bad-signature.bin',mimeType:'application/octet-stream',buffer:Buffer.alloc(8192)});
+      await page.locator('#firmware-install').click();await page.locator('#confirm-accept').click();
+      await waitText('message','signature or image invalid');
+      assert.equal((await read()).state.gpio_command,'OFF commanded');
+    });
+    await run('OFF remains available during an update and supersedes late completion', async () => {
+      await reset({});
+      await page.route('**/api/firmware/chunk', async route => {await new Promise(resolve=>setTimeout(resolve,600));await route.continue();});
+      await page.locator('#firmware-file').setInputFiles({name:'synthetic.bin',mimeType:'application/octet-stream',buffer:Buffer.alloc(8192)});
+      await page.locator('#firmware-install').click();await page.locator('#confirm-accept').click();
+      await waitText('message','Preparing firmware');assert.equal(await page.locator('#off').isEnabled(),true);
+      await page.locator('#off').click();await waitText('message','OFF accepted');
+      await page.waitForTimeout(1000);assert.equal((await read()).state.mode,'DISABLED');
+      assert.equal((await read()).commands.filter(c=>c.action==='finish').length,0);
+      await page.unroute('**/api/firmware/chunk');
     });
     await run('desktop and mobile layouts fit, with no browser storage or external resources', async () => {
       await reset({});

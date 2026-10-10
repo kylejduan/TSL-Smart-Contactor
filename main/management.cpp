@@ -1,4 +1,5 @@
 #include "storage.hpp"
+#include "ota.hpp"
 #include "esp_https_server.h"
 #include "esp_wifi.h"
 #include "esp_netif.h"
@@ -31,6 +32,8 @@ extern "C" const unsigned char css_start[] asm("_binary_style_css_start");
 extern "C" const unsigned char css_end[] asm("_binary_style_css_end");
 extern "C" const unsigned char js_start[] asm("_binary_app_js_start");
 extern "C" const unsigned char js_end[] asm("_binary_app_js_end");
+extern "C" const unsigned char firmware_js_start[] asm("_binary_firmware_js_start");
+extern "C" const unsigned char firmware_js_end[] asm("_binary_firmware_js_end");
 void headers(httpd_req_t* r) {
     httpd_resp_set_hdr(r,"Cache-Control","no-store");
     httpd_resp_set_hdr(r,"X-Content-Type-Options","nosniff");
@@ -100,6 +103,10 @@ esp_err_t styles(httpd_req_t* r) {
 esp_err_t script(httpd_req_t* r) {
     headers(r);httpd_resp_set_type(r,"text/javascript; charset=utf-8");
     return httpd_resp_send(r,reinterpret_cast<const char*>(js_start),js_end-js_start-1);
+}
+esp_err_t firmware_script(httpd_req_t* r) {
+    headers(r);httpd_resp_set_type(r,"text/javascript; charset=utf-8");
+    return httpd_resp_send(r,reinterpret_cast<const char*>(firmware_js_start),firmware_js_end-firmware_js_start-1);
 }
 esp_err_t events(httpd_req_t* r) {
     if(!auth(r,false))return reply(r,"{\"error\":\"authentication_required\"}","401 Unauthorized");
@@ -203,6 +210,55 @@ esp_err_t status(httpd_req_t* r) {
     httpd_resp_set_hdr(r,"X-CSRF-Token",csrf);
     return reply(r,output);
 }
+esp_err_t firmware_status(httpd_req_t* r) {
+    if(!auth(r,false))return reply(r,"{\"error\":\"authentication_required\"}","401 Unauthorized");
+    char output[512]={};
+    if(!ota_status_json(output,sizeof output))return reply(r,"{\"error\":\"status_unavailable\"}","503 Service Unavailable");
+    return reply(r,output);
+}
+esp_err_t firmware_action(httpd_req_t* r) {
+    if(!auth(r,true))return reply(r,"{\"error\":\"authentication_or_csrf\"}","403 Forbidden");
+    char input[256]={},id[33]={};Json j;
+    if(!body(r,input,sizeof input) || !j.parse(input))return reply(r,"{\"error\":\"invalid_request\"}","400 Bad Request");
+    const int op=j.get(0,"action");bool ok=false;
+    if(j.equal(op,"begin")) {
+        int64_t bytes=0,generation=0;
+        ok=j.integer(j.get(0,"bytes"),bytes) && bytes>=8192 && bytes<=0x300000 &&
+            j.integer(j.get(0,"generation"),generation) && generation>0 && generation<=UINT32_MAX &&
+            ota_begin(size_t(bytes),uint32_t(generation));
+    } else if(j.string(j.get(0,"upload_id"),id,sizeof id) && std::strlen(id)==32) {
+        if(j.equal(op,"finish"))ok=ota_finish(id);
+        else if(j.equal(op,"abort"))ok=ota_abort(id);
+    }
+    return ok ? reply(r,"{\"ok\":true}","202 Accepted") :
+        reply(r,"{\"error\":\"firmware_request_rejected\"}","409 Conflict");
+}
+esp_err_t firmware_chunk(httpd_req_t* r) {
+    if(!auth(r,true))return reply(r,"{\"error\":\"authentication_or_csrf\"}","403 Forbidden");
+    char type[40]={},id[33]={},offset_text[12]={};
+    if(r->content_len<=0 || r->content_len>4096 ||
+       httpd_req_get_hdr_value_str(r,"Content-Type",type,sizeof type)!=ESP_OK ||
+       std::strcmp(type,"application/octet-stream") ||
+       httpd_req_get_hdr_value_str(r,"X-Upload-ID",id,sizeof id)!=ESP_OK || std::strlen(id)!=32 ||
+       httpd_req_get_hdr_value_str(r,"X-Upload-Offset",offset_text,sizeof offset_text)!=ESP_OK)
+        return reply(r,"{\"error\":\"invalid_request\"}","400 Bad Request");
+    size_t offset=0,n=0;
+    if(!offset_text[0])return reply(r,"{\"error\":\"invalid_request\"}","400 Bad Request");
+    for(const char* p=offset_text;*p;++p) {
+        if(*p<'0' || *p>'9' || offset>0x300000/10)
+            return reply(r,"{\"error\":\"invalid_request\"}","400 Bad Request");
+        offset=offset*10+unsigned(*p-'0');
+    }
+    uint8_t bytes[4096];const auto deadline=now_ms()+3000;
+    while(n<size_t(r->content_len)) {
+        if(now_ms()>=deadline)return reply(r,"{\"error\":\"upload_timeout\"}","408 Request Timeout");
+        int got=httpd_req_recv(r,reinterpret_cast<char*>(bytes+n),r->content_len-n);
+        if(got<=0)return ESP_FAIL;
+        n+=got;
+    }
+    return ota_chunk(id,offset,bytes,n) ? reply(r,"{\"ok\":true}","202 Accepted") :
+        reply(r,"{\"error\":\"firmware_chunk_rejected\"}","409 Conflict");
+}
 esp_err_t action(httpd_req_t* r) {
     if(!auth(r,true))return reply(r,"{\"error\":\"authentication_or_csrf\"}","403 Forbidden");
     char input[2048]={};Json j;
@@ -218,6 +274,7 @@ esp_err_t action(httpd_req_t* r) {
         if(!change_config(Change::Disabled,epoch))return reply(r,"{\"error\":\"off_inhibited_persistence_failed\"}","503 Service Unavailable");
         return reply(r,"{\"ok\":true}");
     }
+    if(firmware_busy)return reply(r,"{\"error\":\"firmware_update_busy\"}","409 Conflict");
     if(provisioning || critical_fault || !s.ready)
         return reply(r,"{\"error\":\"usb_recovery_required\"}","409 Conflict");
     int64_t supplied=0;
@@ -302,7 +359,7 @@ bool start_management(Profile& p) {
     profile=&p;
     auth_mode.store(p.version);
     httpd_ssl_config_t cfg=HTTPD_SSL_CONFIG_DEFAULT();
-    cfg.httpd.stack_size=24576;cfg.httpd.max_open_sockets=3;cfg.httpd.max_uri_handlers=8;
+    cfg.httpd.stack_size=24576;cfg.httpd.max_open_sockets=3;cfg.httpd.max_uri_handlers=12;
     cfg.httpd.recv_wait_timeout=2;cfg.httpd.send_wait_timeout=2;cfg.httpd.lru_purge_enable=true;
     cfg.servercert=reinterpret_cast<const uint8_t*>(p.certificate);cfg.servercert_len=std::strlen(p.certificate)+1;
     cfg.prvtkey_pem=reinterpret_cast<const uint8_t*>(p.private_key);cfg.prvtkey_len=std::strlen(p.private_key)+1;
@@ -310,9 +367,11 @@ bool start_management(Profile& p) {
     if(httpd_ssl_start(&server,&cfg)!=ESP_OK)return false;
     struct Route {const char* path;httpd_method_t method;esp_err_t (*handler)(httpd_req_t*);};
     const Route routes[]={{"/",HTTP_GET,root},{"/style.css",HTTP_GET,styles},{"/app.js",HTTP_GET,script},
-        {"/api/events",HTTP_GET,events},{"/api/login-info",HTTP_GET,login_info},
+        {"/firmware.js",HTTP_GET,firmware_script},{"/api/events",HTTP_GET,events},{"/api/login-info",HTTP_GET,login_info},
         {"/api/login",HTTP_POST,login},
-        {"/api/status",HTTP_GET,status},{"/api/action",HTTP_POST,action}};
+        {"/api/status",HTTP_GET,status},{"/api/action",HTTP_POST,action},
+        {"/api/firmware",HTTP_GET,firmware_status},{"/api/firmware",HTTP_POST,firmware_action},
+        {"/api/firmware/chunk",HTTP_POST,firmware_chunk}};
     for(const auto& r:routes) {
         httpd_uri_t route={};route.uri=r.path;route.method=r.method;route.handler=r.handler;
         if(httpd_register_uri_handler(server,&route)!=ESP_OK) {httpd_ssl_stop(server);return false;}

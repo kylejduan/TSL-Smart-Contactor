@@ -61,9 +61,12 @@ inhibits output. The Python helper pins `cryptography==46.0.3`, `pyserial==3.5`,
 in `tools/requirements.txt`.
 
 `build/tsl_smart_contactor.bin` is the application, not a standalone full-flash
-image. Flash through IDF so bootloader and partition table use the correct offsets.
-There is no OTA partition or updater. Preserve NVS when updating; never use
-`erase-flash` as an automatic troubleshooting step.
+image. Builds are unsigned; sign the application with your installation key before
+deployment. Firmware 0.2.0 provides local authenticated, signed OTA with two app
+slots and startup rollback. Existing factory-layout installations need one
+USB migration; follow [OTA signing, migration and recovery](docs/ota.md). Preserve
+NVS and never use `erase-flash` as an automatic troubleshooting step. Do not flash
+an unsigned image if you expect OTA availability.
 
 ## Windows laptop
 
@@ -160,10 +163,18 @@ before you have a Tesla client ID. Avoid `tesla` in the application hostname.
    ```sh
    # These operate on connected hardware; substitute your actual port.
    python -m esptool --chip esp32s3 --port /dev/ttyACM0 flash_id
-   idf.py -p /dev/ttyACM0 flash
+   # Prepare your signed bundle as described in docs/ota.md. NEW installations only:
+   python -m esptool --chip esp32s3 --port /dev/ttyACM0 write_flash \
+     --flash_mode dio --flash_size 8MB --flash_freq 40m \
+     0x0 .tools/ota-migration/bootloader.bin \
+     0x8000 .tools/ota-migration/partition-table.bin \
+     0x21000 .tools/ota-migration/otadata.bin \
+     0x30000 .tools/ota-migration/application.bin
    ```
 
-   Check actual flash size ≥8 MB. The schematic and reused settings image disagree;
+   For an existing provisioned factory-layout device, use `ota_migrate.py` instead
+   so the tool backs up and checks NVS preservation. Do not use this initial-flash
+   command on a device already using OTA. Check actual flash size ≥8 MB. The schematic and reused settings image disagree;
    see [verified interfaces](docs/verified_interfaces.md). Enter ROM download mode
    with the board's BOOT/RESET procedure if needed. Updates may reset the board;
    disconnect the load for bench work. No eFuse or full-flash erase command is used.

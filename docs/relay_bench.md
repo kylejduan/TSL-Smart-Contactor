@@ -24,12 +24,17 @@ export IDF_TOOLS_PATH="$PWD/.tools/toolchain"
 . .tools/esp-idf/export.sh
 idf.py -B build-bench -D SDKCONFIG="$PWD/build-bench/sdkconfig" \
   -D IDF_TARGET=esp32s3 -D TSL_USB_RELAY_BENCH=ON build
-sha256sum build-bench/tsl_smart_contactor.bin
+sha256sum build-bench/tsl_relay_bench.bin
 ```
 
 Never use `idf.py flash` for this procedure: the runner writes **only** the
-factory application at `0x30000`. Bootloader, partition table, NVS and PHY data
-stay outside the written region. The factory partition is 3 MiB. The diagnostic
+selected running application (legacy factory at `0x30000`, or the checked OTA
+slot). Bootloader, partition table, NVS and PHY data
+stay outside the written region. On OTA firmware the runner queries USB
+`firmware_status`, requires a confirmed/normal signed baseline and no update in
+progress, and uses its allowlisted running slot for both diagnostic and restoration.
+It verifies the frozen production image at that offset before writing. Both
+legacy/OTA application partitions are 3 MiB. The diagnostic
 does not initialize Wi-Fi, NVS, Tesla, HTTPS or production configuration.
 
 Run the native diagnostic tests and the host restoration tests before hardware:
@@ -51,7 +56,7 @@ copy or credentials are needed. Substitute the actual MAC and reviewed hashes:
 
 ```sh
 python tools/relay_bench.py --port PORT --expected-mac BOARD_MAC \
-  --bench-image build-bench/tsl_smart_contactor.bin --bench-sha256 BENCH_SHA256 \
+  --bench-image build-bench/tsl_relay_bench.bin --bench-sha256 BENCH_SHA256 \
   --production-image PRESERVED_PRODUCTION_BIN --production-sha256 PRODUCTION_SHA256 \
   --authorize-isolated-usb-relay-test
 ```

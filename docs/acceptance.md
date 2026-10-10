@@ -36,3 +36,10 @@ fixtures cover this alternative, including saved HOME/AWAY restoration after
 startup dwell, commit inhibition/corruption, local-fault reset rejection and
 unchanged request caps. Real outage and power-cycle measurements remain local
 installation acceptance; no software result establishes physical presence.
+
+
+Local signed OTA software is available in 0.2.0. This does not certify a device
+installation: the [OTA checklist](ota.md#verification) requires an approved
+isolated migration and supervised wireless/interruption/rollback checks. Firmware
+self-tests establish local startup health, not electrical output or every possible
+application regression. Shared NVS/token state is never rolled back.

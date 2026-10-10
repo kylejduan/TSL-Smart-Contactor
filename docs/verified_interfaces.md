@@ -14,8 +14,8 @@ board definition, regions, scopes or pricing.
 | [Published schematic, one sheet](https://files.waveshare.com/wiki/ESP32-S3-Relay-1CH/ESP32-S3-Relay-1CH-schematic.pdf) | Pin table maps CH1 to GPIO47. CH1 drives the SS8050/opto/transistor relay circuit active-high; pull-down R18 is shown. USB D−/D+ map to GPIO19/20. MCU is ESP32-S3R8 (octal PSRAM package); flash is labeled **W25Q128JVSI (128 Mbit / 16 MB)**. No RGB LED is selected or used. |
 | [Arduino setup page](https://docs.waveshare.net/ESP32-S3-Relay-1CH/Arduino/) | Its settings image shows **8 MB**, QIO/80 MHz, PSRAM disabled, and a filename referring to Relay-6CH. The page also points to generic S3-Zero tutorials. These reused examples are not sufficient evidence of the installed board's flash capacity. |
 
-**Design decision:** use an 8 MB header, conservative DIO/40 MHz flash, 40 MHz octal PSRAM for TLS allocations, and a
-3 MB factory application partition. The flash layout fits either cited capacity.
+**Design decision:** use an 8 MB header, conservative DIO/40 MHz flash, 40 MHz octal PSRAM for TLS allocations, and
+two 3 MiB application OTA slots. The flash layout fits either cited capacity.
 The documented S3R8 has 8 MB PSRAM; runtime checks detection/size and inhibits output
 on a mismatch. Control state and task stacks stay in internal RAM. External RAM is
 registered only with the capability allocator, not generic malloc. `main/board.hpp` alone owns GPIO47/polarity. USB Serial/JTAG owns
@@ -176,3 +176,42 @@ claim of fresh GPS or physical presence. Default/legacy records remain `expire`.
 The NVS record and synthetic power-loss tests are project implementation evidence;
 actual interrupted commits, startup pulses and brownouts require hardware checks.
 See [the policy owner](architecture.md#holding-the-last-confirmed-auto-decision).
+
+
+## Application OTA interfaces (ESP-IDF v5.5.2)
+
+Primary documentation reviewed for the 0.2.0 implementation on 2026-10-10:
+[ESP32-S3 OTA](https://docs.espressif.com/projects/esp-idf/en/v5.5.2/esp32s3/api-reference/system/ota.html)
+and the pinned release sources `components/bootloader/Kconfig.projbuild`,
+`components/bootloader/Kconfig.app_rollback`, `components/app_update/esp_ota_ops.c`,
+and `components/bootloader_support/src/secure_boot_v2/secure_boot_signatures_app.c`.
+The hosted secure-boot-v2 guide could not be retrieved during this review; its
+behavior was checked against those exact released SDK sources instead.
+
+Manufacturer/SDK facts: application interruption safety requires two OTA app
+partitions and a redundant 8 KiB OTA data partition. Pending firmware must be
+confirmed through `esp_ota_mark_app_valid_cancel_rollback`; reset before
+confirmation or an explicit invalidation supports rollback. Factory partitions
+cannot participate in that rollback mechanism. Bootloader/table/data updates
+lack the application update's safe interruption model.
+
+The SDK's software-only RSA signed-on-update configuration verifies new app
+signatures against key digests in the running signed app without hardware secure
+boot/eFuse changes. `esp_ota_end` verifies the whole downloaded image; scanning
+running-image signature blocks alone is not independent signature verification.
+The offline initial bundle is signed and independently verified with the pinned
+esptool 4.12.0 `espsecure` implementation. No software-only RSA signed-on-boot
+claim is made for this ESP32-S3 configuration.
+
+Design choices: a separate update worker, local authenticated/CSRF-protected
+chunk upload, 4 KiB chunks, 180-second total and 30-second idle deadlines, relay
+maintenance inhibition, five seconds of local startup health, and a 30-second
+startup timeout. Private signing keys are separate from Tesla's registration key.
+No external update service, hardware secure boot, anti-rollback eFuses or new
+billing activity is introduced. Full behavior and trust limits belong to
+[ota.md](ota.md).
+
+Outstanding hardware checks: isolated USB migration, measured relay/control
+behavior during flash writes, signed wireless upload, wrong-key rejection,
+interrupted-upload recovery and pending-boot rollback. Host fixtures and signing
+checks are synthetic/offline evidence and do not close those checks.

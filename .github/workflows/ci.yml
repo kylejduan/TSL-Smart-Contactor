@@ -30,6 +30,7 @@ jobs:
           idf.py set-target esp32s3
           idf.py build
           idf.py size
+          python tools/test_signed_firmware.py --build build
           idf.py -B build-bench -D SDKCONFIG="$PWD/build-bench/sdkconfig" -D IDF_TARGET=esp32s3 -D TSL_USB_RELAY_BENCH=ON build
 
   browser:

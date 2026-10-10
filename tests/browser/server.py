@@ -49,6 +49,8 @@ class Fixture:
         self.events_fail = False
         self.login_type = None
         self.login_material = MATERIAL
+        self.firmware = dict(available=True,busy=False,state='idle',received=0,total=0,upload_id='',error='none',boot_check='normal',slot='ota_0',version='0.2.0',build_sha256='f'*64)
+        self.firmware_fail = False
 
 FIXTURE = Fixture()
 
@@ -69,9 +71,9 @@ class Handler(BaseHTTPRequestHandler):
         try: self.wfile.write(data)
         except (BrokenPipeError, ConnectionResetError): pass
     def do_GET(self):
-        if self.path in ['/', '/style.css', '/app.js']:
+        if self.path in ['/', '/style.css', '/app.js', '/firmware.js']:
             name = 'index.html' if self.path == '/' else self.path[1:]
-            kind = {'index.html':'text/html', 'style.css':'text/css', 'app.js':'text/javascript'}[name]
+            kind = {'index.html':'text/html', 'style.css':'text/css', 'app.js':'text/javascript', 'firmware.js':'text/javascript'}[name]
             return self.send((ROOT/name).read_bytes(), content_type=kind)
         with FIXTURE.lock:
             if self.path == '/__test':
@@ -80,6 +82,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(dict(version=2, salt=SALT.hex(), iterations=100000))
             FIXTURE.requests.append(self.path)
             if not FIXTURE.auth: return self.send(dict(error='authentication_required'), 401)
+            if self.path == '/api/firmware':return self.send(FIXTURE.firmware)
             if self.path == '/api/status':
                 response = copy.deepcopy(FIXTURE.state);delay=FIXTURE.status_delay
             elif self.path == '/api/events':
@@ -91,11 +94,22 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         size=int(self.headers.get('Content-Length','0'))
         if size>8192:return self.send(dict(error='invalid_request'),400)
-        body=json.loads(self.rfile.read(size))
+        raw=self.rfile.read(size)
+        if self.path == '/api/firmware/chunk':
+            with FIXTURE.lock:
+                if not FIXTURE.auth or self.headers.get('X-CSRF-Token')!='synthetic-csrf':
+                    return self.send(dict(error='authentication_or_csrf'),403)
+                u=FIXTURE.firmware
+                if self.headers.get('X-Upload-ID')!=u['upload_id'] or int(self.headers.get('X-Upload-Offset','-1'))!=u['received'] or u['state']!='receiving':
+                    return self.send(dict(error='firmware_chunk_rejected'),409)
+                u['received']+=len(raw);return self.send(dict(ok=True),202)
+        body=json.loads(raw)
         with FIXTURE.lock:
             if self.path == '/__test':
                 if body.pop('reset',False):FIXTURE.reset()
                 FIXTURE.state.update(body.pop('state',{}))
+                FIXTURE.firmware.update(body.pop('firmware',{}))
+                if 'firmware_fail' in body:FIXTURE.firmware_fail=body['firmware_fail']
                 if 'password' in body:
                     # Synthetic test-only credential; never part of firmware.
                     FIXTURE.login_material = hashlib.pbkdf2_hmac('sha256', body['password'].encode('utf-8'), SALT, 100000).hex()
@@ -112,6 +126,16 @@ class Handler(BaseHTTPRequestHandler):
             if not FIXTURE.auth or self.headers.get('X-CSRF-Token')!='synthetic-csrf':
                 return self.send(dict(error='authentication_or_csrf'),403)
             s=FIXTURE.state
+            if self.path=='/api/firmware':
+                u=FIXTURE.firmware
+                if action=='begin' and u['available'] and not u['busy'] and body.get('generation')==s['generation']:
+                    u.update(busy=True,state='receiving',received=0,total=body['bytes'],upload_id='a'*32)
+                    s.update(gpio_command='OFF commanded',reason='firmware_update_output_inhibited')
+                elif body.get('upload_id')==u['upload_id'] and action=='finish' and u['received']==u['total']:
+                    u.update(state='failed' if FIXTURE.firmware_fail else 'rebooting',error='signature_or_image_invalid' if FIXTURE.firmware_fail else 'none')
+                elif body.get('upload_id')==u['upload_id'] and action=='abort':u.update(state='failed',busy=False,error='upload_aborted')
+                else:return self.send(dict(error='firmware_request_rejected'),409)
+                return self.send(dict(ok=True),202)
             if action not in ('off', 'logout') and body.get('generation') != s['generation']:
                 return self.send(dict(error='stale_command'),409)
             if action in ('off', 'auto', 'settings'):
