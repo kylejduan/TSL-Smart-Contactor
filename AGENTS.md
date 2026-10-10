@@ -14,7 +14,8 @@ the exact staged diff for personal narrative and secrets the guard cannot detect
 Use the public GitHub handle/noreply identity. Preserve unrelated changes. Do not
 rewrite history without explicit authorization or reintroduce superseded history.
 
-Software development does not authorize flashing, relay ON, live Fleet requests,
-network interruption or fault injection. Obtain explicit operator approval and
-appropriate USB-only isolation/supervision for hardware tests. Do not change a
-running installation or its spending/presence policy as part of documentation work.
+An operator's confirmed USB setup and authorization cover the requested firmware
+installation and supervised update/recovery tests; do not repeatedly ask for the
+same confirmation. Relay-ON tests, live Fleet requests and billing changes still
+require explicit authorization. Do not change a running installation or its
+spending/presence policy as part of documentation work.
