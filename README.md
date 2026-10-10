@@ -52,7 +52,9 @@ ctest --test-dir build-host --output-on-failure
 .venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
-ESP-IDF is pinned to **v5.5.2** and its release commit/submodules. Native tests are
+ESP-IDF is pinned to **v5.5.2** and its release commit/submodules. Bootstrap and CI
+install the tested `esptool==4.12.0` signing/recovery tool from
+`tools/requirements-sdk.txt` into the SDK environment. Native tests are
 CMake tests of the actual production C++ sources; there is only one firmware build
 system. Host address/undefined-behavior sanitizers are enabled by default.
 Reproducible-build mode omits build timestamps and maps source paths. The firmware
@@ -71,7 +73,8 @@ an unsigned image if you expect OTA availability.
 ## Windows laptop
 
 Install [Espressif's ESP-IDF v5.5.2 Windows tools](https://docs.espressif.com/projects/esp-idf/en/v5.5.2/esp32s3/get-started/windows-setup.html)
-and run `idf.py set-target esp32s3`, `idf.py build` from its command prompt in this
+and run `python -m pip install -r tools/requirements-sdk.txt`,
+`idf.py set-target esp32s3`, `idf.py build` from its command prompt in this
 repository. Do not use Arduino or PlatformIO settings. In PowerShell with Python
 3.12 installed:
 

@@ -30,4 +30,8 @@ if "$patch_only"; then
 fi
 export IDF_TOOLS_PATH="${IDF_TOOLS_PATH:-$PWD/.tools/toolchain}"
 "$sdk_dir/install.sh" esp32s3
+(
+  . "$sdk_dir/export.sh"
+  python -m pip install -r tools/requirements-sdk.txt
+)
 printf '%s\n' 'Next: source .tools/esp-idf/export.sh; idf.py set-target esp32s3; idf.py build'

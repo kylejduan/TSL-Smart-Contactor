@@ -16,7 +16,9 @@ offline; only `ota_migrate.py` changes a device.
 Use the pinned ESP-IDF v5.5.2 command environment (with esptool 4.12.0), after
 `tools/bootstrap.sh` has applied the project's SDK fix. Signing uses that SDK's
 `espsecure` implementation; general provisioning requirements alone do not install
-it. On Windows use the ESP-IDF command prompt in this repository. If building in
+it. Bootstrap installs the signing-tool pin from `tools/requirements-sdk.txt`.
+On Windows use the ESP-IDF command prompt in this repository and run
+`python -m pip install -r tools/requirements-sdk.txt` before building/signing. If building in
 WSL, keep the SDK/toolkit here and use Windows only for its USB connection, or
 attach the device deliberately to WSL. There is no separate Windows build-tools
 folder. Path arguments below are placeholders relative to the repository.

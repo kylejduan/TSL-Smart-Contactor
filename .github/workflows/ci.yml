@@ -27,6 +27,7 @@ jobs:
           tools/bootstrap.sh --patch-sdk /opt/esp/idf
           python3 tools/test_sdk_https_cleanup.py --sdk /opt/esp/idf
           . /opt/esp/idf/export.sh
+          python -m pip install -r tools/requirements-sdk.txt
           idf.py set-target esp32s3
           idf.py build
           idf.py size
