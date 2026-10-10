@@ -14,8 +14,9 @@ This does not change the password hashing or authentication rate limits.
 
 - **ON commanded / OFF commanded** is the last recorded GPIO command, never proof
   of receptacle voltage or charging.
-- **AUTO permission** is the independent HOME lease anchored to the timestamp chosen
-  by the position policy. Manual override and dry-run do not create this permission.
+- **AUTO permission** is the independent HOME decision from the selected position
+  policy. `expire` requires a live lease; `hold_last` may retain it after that lease
+  elapses. Manual override and dry-run do not create this permission.
 - **Reported position** is the distance from returned coordinates to configured
   home, labeled freshness unverified. Distance alone cannot authorize AUTO.
 - **Location evidence** identifies the selected basis. Strict `gps_source` requires
@@ -82,9 +83,27 @@ in-flight results; it does not commission the installation or enable physical
 output. Neither mode switches itself based on whichever timestamp happens to be
 valid, and neither uses local receipt time. The option's live activation awaits
 the owner's explicit choice; availability in the interface is not acceptance or
-live verification. After a schema 2 configuration is saved, downgrading to older
+live verification. After a schema 3 configuration is saved, downgrading to older
 firmware causes configuration rejection and OFF rather than a silent policy
 change. Credentials are not automatically erased.
+
+**Outage behavior** is separate from timestamp selection. `expire` keeps the
+bounded lease/sleep rules. `hold_last` retains confirmed HOME through missing data,
+Wi-Fi/internet/API errors, OFFLINE, sleep and caps until valid AWAY, explicit OFF,
+permanent authorization loss or a critical local fault. It can remain ON indefinitely
+while the vehicle is away and departure cannot be confirmed. Lease/sleep numeric
+controls are inactive in this mode; acceptance age, polling and spending caps still
+apply. The UI shows retained HOME and no outage cutoff rather than calling the old
+position fresh. Browser countdowns never issue Tesla requests.
+
+Every reboot starts OFF. Default `expire` requires new HOME. In `hold_last`,
+ordinary power recovery restores the durably saved AUTO decision: HOME resumes
+after at least 30 seconds OFF even without internet; AWAY, unknown or DISABLED
+stays OFF. The page identifies restored historical HOME and pending commits.
+Watchdog/panic recovery discards cached permission. A failed/corrupt record inhibits
+output. A power cut before OFF/AWAY commits can preserve the previous saved
+decision. Timed ON never survives reset or establishes HOME. Saving settings
+clears both current and saved decisions and timed overrides, retaining the mode.
 
 The browser may enter dry-run. Arming, leaving dry-run, secret replacement and
 network/certificate provisioning remain USB-only. The page includes the exact

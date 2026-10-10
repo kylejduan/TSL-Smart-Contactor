@@ -75,6 +75,8 @@ identity/configuration generation, valid coordinates and synchronized UTC. Neith
 uses HTTP time or receipt time as a fallback. A negative `gps_as_of` remains a
 diagnostic in report mode; it is never converted into a valid GPS time.
 
+The following table describes the default `outage_policy=expire` behavior.
+
 | Input | Effect |
 | --- | --- |
 | Fresh qualifying position ≤100 m | HOME latch; lease expires at evidence time +900 s, converted once to monotonic time |
@@ -97,9 +99,76 @@ Haversine distance clamps roundoff and handles the
 antimeridian. No historical location can prove current physical presence; report
 mode and sleeping-home renewal are explicit compromises, not proximity sensing.
 
+### Holding the last confirmed AUTO decision
+
+`outage_policy=hold_last` is an explicit alternative to the expiry table above.
+`Policy` keeps its independent geofence latch after the ordinary lease and sleep
+ceiling pass. Missing results, OFFLINE, stale/malformed responses, transport/API
+errors, backoff and caps cannot establish HOME or clear a confirmed HOME decision.
+A newer admissible AWAY fix clears it immediately; hysteresis retains the latch in
+the intermediate band. The source/report timestamp remains unchanged, the expired
+lease has zero remaining time, and `auto_retained=true` / `auto_home_retained`
+identify retained authorization instead of fresh evidence.
+
+A UTC discontinuity keeps the confirmed decision in hold mode, but marks its lease
+elapsed; synchronization and the original timestamp/identity/order checks remain
+required before accepting another location. The default expiry mode still clears
+AUTO on a clock discontinuity. No retry extends any evidence timestamp. Sleep
+responses cannot create HOME after an unknown/AWAY decision or manufacture freshness.
+A saved held HOME can restore permission independently of any sleeping response.
+
+Explicit OFF, permanent authorization/permission loss and critical local faults
+clear HOME in both modes. TIMED_ON remains volatile with its own deadline and
+never creates a HOME latch; expiry returns to independently evaluated AUTO. Output
+still obeys commissioning, dry-run, persisted DISABLED and minimum OFF dwell.
+Configuration changes invalidate old/queued evidence in both modes.
+
+Hold-last has **no maximum outage/sleep/cap hold duration**, so departure during an
+outage can leave the outlet enabled indefinitely until fresh valid AWAY evidence
+or operator/local inhibition. The scheduler, bounded retries, token refresh and
+spending limits are unchanged. No additional paid requests or vehicle commands
+are introduced. It is a charging-availability choice, not proof of physical
+presence or an access-duration guarantee.
+
+Default `expire` does not persist permission and requires new qualifying HOME
+after reset. Explicit `hold_last` saves the independent AUTO HOME/AWAY decision in
+a separate 32-byte versioned NVS blob, checked by CRC and bound to every setting
+without relying on C++ padding. The timestamp saved at the decision transition is
+an ordering watermark: it rejects reports older than or equal to that transition
+after restoration, without a reusable lease or GPS-freshness claim. Same-state
+polls update RAM timestamps without repeatedly writing flash.
+Ordinary power/reset recovery starts OFF and restores saved HOME after the
+configured minimum OFF dwell (at least 30 seconds), without requiring Wi-Fi/UTC.
+Saved AWAY, unknown state, DISABLED, uncommissioned or dry-run output remains OFF.
+A missing record means unknown; malformed/wrong-size/corrupt records fault OFF.
+Watchdog, panic and unrecognized reset reasons durably clear saved permission and
+require new HOME. A durable token revocation prevents restoring HOME offline.
+
+A dedicated storage worker commits transitions outside the control task. New
+held HOME cannot physically energize until its current-generation commit is
+acknowledged; `auto_state_commit_pending` explains the inhibit. OFF/AWAY remain
+immediate. Repeated polls/errors do not rewrite unchanged decisions. OFF/settings/
+provisioning writers serialize with this worker and clear prior saved permission
+before saving a profile. Late acknowledgements cannot defeat OFF or a new config.
+`auto_restored` identifies historical boot restoration, while `auto_state_pending`
+identifies an uncommitted transition. No coordinates, override or output command
+are persisted in this record.
+
+GPIO and flash cannot change atomically: a power cut before an OFF/AWAY commit
+can retain the previously committed decision. Failed writes inhibit the current
+boot; hardware testing must measure the actual commit/reset boundaries. Corrupt
+records are not silently overwritten by runtime recovery; deliberate full USB
+provisioning replaces the decision record while inhibiting output.
+
+Config schema 3 uses byte 85 of the existing 88-byte record, formerly padding.
+Schemas 1/2 always mean `expire` regardless of that byte. Saving settings migrates
+legacy values explicitly and preserves the profile size, credential fields and
+CRC coverage. Unsupported schemas are rejected; downgrading after a schema 3 save
+stays OFF rather than interpreting held authorization as an expiring lease.
+
 ### Optional ten-minute profile
 
-An explicitly selected profile uses `position_basis=vehicle_report`,
+With `outage_policy=expire`, an explicitly selected profile uses `position_basis=vehicle_report`,
 `max_age_s=600`, `lease_s=600` and `poll_s=540`. It retains the default radii,
 30-second OFF dwell, fixed 24-hour sleeping-home ceiling and request caps.
 Factory defaults and `config.example.json` remain strict `gps_source`; a strict
@@ -150,18 +219,18 @@ Use firmware that supports a 600-second maximum age. Older images may reject
 that setting. There is no OTA or live-powered flashing workflow. Changing basis is authenticated, clears old evidence/overrides and
 fences outstanding results; it does not bypass the existing scheduler embargo.
 
-New configuration records use schema 2. The record remains 88 bytes; a schema 1
+New configuration records use schema 3. The record remains 88 bytes; a schema 1
 record is interpreted as strict `gps_source`, ignoring the bytes that were padding
 in that schema. Authenticated Settings validates the basis and changing it clears
-leases, overrides and old-generation responses. Once a schema 2 record is saved,
+leases, overrides and old-generation responses. Once a newer configuration schema is saved,
 older firmware rejects that unsupported configuration and remains OFF; it does
-not erase credentials. Do not downgrade expecting schema 2 to be understood.
+not erase credentials. Do not downgrade expecting a newer schema to be understood.
 
 SNTP is configured before Wi-Fi starts, then started/restarted after DHCP supplies
 an IP address. This avoids carrying pre-connection DNS backoff into normal operation.
 SNTP must synchronize before outbound TLS or accepting position evidence. Leases, override,
 dwell and retries use 64-bit monotonic milliseconds. A UTC discontinuity over 30
-seconds clears AUTO; it does not extend any deadline. The onboard RTC is not trusted
+seconds clears AUTO in expiry mode and marks retained HOME stale in hold mode; it does not extend any deadline. The onboard RTC is not trusted
 or initialized. SNTP itself is unauthenticated; the local network/time source is
 part of this hobby controller's trust boundary.
 
@@ -201,7 +270,8 @@ while new location evidence and TLS requests wait for a fresh SNTP sync after
 the next IP connection. DHCP address loss also clears readiness. An NTP-only
 outage inhibits new evidence/TLS after six hours without synchronization;
 `utc_sync_age_s` uses wrapping unsigned uptime seconds. Existing monotonic
-deadlines remain unchanged. A clock discontinuity still clears AUTO permission.
+deadlines remain unchanged. A clock discontinuity clears AUTO in expiry mode;
+hold mode retains its confirmed decision and marks it stale.
 Responses are capped at 16 KiB, JSON at depth 12/512 tokens, HTTP line at 1 KiB and
 combined header/chunk metadata at 8 KiB. Close-delimited, length-delimited and chunked
 responses work; ambiguous lengths, compression, oversize and truncation fail closed.
@@ -268,7 +338,8 @@ on monthly live-data requests matches $10 at the published $0.002 Data price.
 Before each poll, the client checks this cap so it sends no status, live-data or
 poll-time refresh request once the monthly live-data allowance is spent. A separate
 unbilled token refresh may still maintain the device-owned token chain. Budget failures
-cannot renew a sleeping-home lease, and normal policy expiry commands OFF. On the
+cannot renew a sleeping-home lease. Default expiry commands OFF; hold-last
+retains the confirmed decision without spending above the cap. On the
 next UTC month, the budget can resume without clearing stored account records.
 
 ## Local management boundary

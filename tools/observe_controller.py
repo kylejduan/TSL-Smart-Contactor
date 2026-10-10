@@ -27,7 +27,7 @@ from tesla_setup import NoRedirect, SetupError, decode_json
 MAX_REPLY = 16384
 MAX_LOG = 32 * 1024 * 1024
 REASONS = set("uncommissioned user_disabled critical_local_fault no_auto_authorization "
-              "auto_home_lease timed_override_bypasses_presence minimum_off_dwell "
+              "auto_home_lease auto_home_retained auto_state_commit_pending timed_override_bypasses_presence minimum_off_dwell "
               "dry_run_output_inhibited utc_not_ready unknown".split())
 ERRORS = set("none transport timeout response_too_large malformed_data gps_source_time_unusable "
              "vehicle_report_time_unusable authentication missing_permission rate_limit billing "
@@ -35,9 +35,9 @@ ERRORS = set("none transport timeout response_too_large malformed_data gps_sourc
              "reauthorization_required utc_not_ready wifi_unavailable unknown".split())
 ENUMS = {"mode": {"AUTO", "DISABLED", "TIMED_ON"}, "gpio_command": {"ON commanded", "OFF commanded"},
          "reason": REASONS, "vehicle": {"online", "asleep", "offline", "unknown"},
-         "position_basis": {"gps_source", "vehicle_report"}, "error": ERRORS,
+         "position_basis": {"gps_source", "vehicle_report"}, "outage_policy": {"expire", "hold_last"}, "error": ERRORS,
          "fleet_endpoint": {"none", "status", "location", "refresh", ""}}
-BOOLEANS = set("desired_on ready commissioned dry_run fault auto_home wifi_connected utc_ready "
+BOOLEANS = set("desired_on ready commissioned dry_run fault auto_home auto_retained auto_restored auto_state_pending wifi_connected utc_ready "
                "reauthorization_needed poll_busy".split())
 INTEGERS = set("generation uptime_s lease_s override_s location_age_s next_poll_s last_success_uptime_s "
                "rssi_dbm control_max_gap_ms internal_heap_free fleet_http_status "

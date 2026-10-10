@@ -161,3 +161,18 @@ These are explicit recovery decisions, not permission to bypass consent/caps.
 The six-hour SNTP holdover limit is also a project decision. The pinned SDK's
 SNTP callback, delayed LOST_IP event, resolver and TLS source were inspected;
 actual DHCP, RF and brownout failure behavior remains a hardware check.
+
+## Optional retained-decision policy (project choice)
+
+`outage_policy=hold_last` is an explicit owner-selected departure from the default
+expiring authorization contract, not a Tesla interface feature. It retains the
+last confirmed AUTO decision during missing data and outages and restores the
+last durably saved HOME/AWAY decision after ordinary power loss. Startup is OFF;
+saved HOME may resume after the minimum 30-second OFF dwell without internet/UTC.
+Watchdog/panic reset, explicit OFF, permanent authorization loss and local faults
+remain inhibitors. New evidence still needs its selected timestamp/identity
+checks. This mode has no bounded departure cutoff during an outage and makes no
+claim of fresh GPS or physical presence. Default/legacy records remain `expire`.
+The NVS record and synthetic power-loss tests are project implementation evidence;
+actual interrupted commits, startup pulses and brownouts require hardware checks.
+See [the policy owner](architecture.md#holding-the-last-confirmed-auto-decision).

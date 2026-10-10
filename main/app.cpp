@@ -28,6 +28,8 @@ static Snapshot state;
 static ControlEpoch control_epoch;
 static bool forced_off=false,pending_config=false,pending_timed=false;
 static Config new_config;
+static AutoState pending_restored=AutoState::Unknown;
+static int64_t pending_source=0;
 static uint32_t config_epoch=0,timed_epoch=0,timed_seconds=0;
 static StaticQueue_t obs_queue_data;
 static uint8_t obs_queue_buffer[8*sizeof(Observation)];
@@ -61,7 +63,7 @@ bool begin_provision(uint32_t expected,uint32_t& acquired) {
     }
     portEXIT_CRITICAL(&lock);return ok;
 }
-bool configure(const Config& c,uint32_t epoch) {
+bool configure(const Config& c,uint32_t epoch,AutoState restored,int64_t source) {
     portENTER_CRITICAL(&lock);
     bool ok=control_epoch.matches(epoch);
     if(ok) {
@@ -71,8 +73,20 @@ bool configure(const Config& c,uint32_t epoch) {
             state.last_poll=0;state.next_poll=0;state.polling_paused=false;state.fleet={};
         }
         new_config=c;config_epoch=epoch;pending_config=true;
+        pending_restored=restored;
+        pending_source=source;
     }
     portEXIT_CRITICAL(&lock);return ok;
+}
+void auto_commit_ack(const Snapshot& committed) {
+    portENTER_CRITICAL(&lock);
+    if(!critical_fault && !provisioning && !state.inhibited &&
+       control_epoch.matches(committed.generation) &&
+       state.decision.auto_state==committed.decision.auto_state) {
+        state.auto_saved=committed.decision.auto_state;
+        state.auto_saved_generation=committed.generation;
+    }
+    portEXIT_CRITICAL(&lock);
 }
 bool timed(uint32_t seconds,uint32_t epoch) {
     portENTER_CRITICAL(&lock);
@@ -116,8 +130,17 @@ static void setup(void*) {
     // headroom beyond their buffers; the USB diagnostics expose the watermark.
     if(xTaskCreate(usb_task,"usb_provision",32768,nullptr,2,nullptr)!=pdPASS)fail("setup_or_usb_task");
     if(r==ReadResult::Ok && valid_profile(profile) && !critical_fault) {
+        AutoState saved=AutoState::Unknown;
+        int64_t source=0;
+        const auto reset=esp_reset_reason();
+        // A watchdog/panic indicates a local control failure, not an ordinary
+        // outage. Discard its cached permission durably before continuing.
+        bool resume=reset==ESP_RST_POWERON || reset==ESP_RST_EXT || reset==ESP_RST_SW ||
+            reset==ESP_RST_BROWNOUT || reset==ESP_RST_PWR_GLITCH;
+        if(load_auto_state(profile.config,saved,source,resume)!=Error::None)fail("auto_state_load");
         // USB OFF may have superseded this profile while it was being validated.
-        configure(profile.config,startup_generation);
+        if(!critical_fault)configure(profile.config,startup_generation,saved,source);
+        if(!start_auto_storage())fail("auto_storage_task");
         if(!provisioning) {
             start_wifi(profile);
             if(!start_management(profile))fail("https_start");
@@ -139,7 +162,7 @@ extern "C" void app_main() {
     if(heap_caps_register_failed_alloc_callback(allocation_failed)!=ESP_OK)fail("allocation_monitor");
     if(esp_task_wdt_add(nullptr)!=ESP_OK)fail("watchdog_init");
     obs_queue=xQueueCreateStatic(8,sizeof(Observation),obs_queue_buffer,&obs_queue_data);
-    if(!obs_queue || xTaskCreatePinnedToCore(setup,"setup",12288,nullptr,2,nullptr,0)!=pdPASS)fail("setup_or_usb_task");
+    if(!obs_queue || xTaskCreatePinnedToCore(setup,"setup",20480,nullptr,2,nullptr,0)!=pdPASS)fail("setup_or_usb_task");
     Policy policy(now_ms());ClockGuard clock;
     TickType_t wake=xTaskGetTickCount();Ms last_tick=now_ms();
     Reason last_reason=Reason::NoAuthorization;bool last_command=false;
@@ -149,15 +172,24 @@ extern "C" void app_main() {
         if(gap>control_max_gap_ms)control_max_gap_ms=gap;
         if(gap>250)fail("control_deadline");
         last_tick=now;
-        bool off,apply,override;Config c;uint32_t epoch,seconds,te;
+        bool off,apply,override;Config c;uint32_t epoch,seconds,te;AutoState restored;int64_t source;
         portENTER_CRITICAL(&lock);
         off=forced_off;forced_off=false;epoch=control_epoch.current();
         apply=pending_config && config_epoch==epoch;c=new_config;pending_config=false;
+        restored=pending_restored;
+        source=pending_source;
         override=pending_timed;seconds=timed_seconds;te=timed_epoch;pending_timed=false;
-        if(apply) {state.config=c;state.ready=true;state.inhibited=false;}
+        if(apply) {
+            state.config=c;state.ready=true;state.inhibited=false;
+            // Publish the new generation's empty/restored decision atomically
+            // with its configuration. A storage worker must never bind the
+            // previous HOME decision to newly configured VIN/home settings.
+            state.decision={};state.decision.auto_state=restored;
+            state.auto_saved=restored;state.auto_saved_generation=epoch;
+        }
         portEXIT_CRITICAL(&lock);
         if(off)policy.off(epoch,now);
-        if(apply)policy.configure(c,epoch,now);
+        if(apply) {policy.configure(c,epoch,now);policy.restore(restored,source);}
         if(override && te==epoch)policy.timed_on(seconds,now);
         // Keep an existing monotonic lease through a brief Wi-Fi outage, but
         // require a new SNTP sync before admitting another location fix.
@@ -169,7 +201,10 @@ extern "C" void app_main() {
         Observation o;
         for(int i=0;obs_queue && i<8 && xQueueReceive(obs_queue,&o,0)==pdTRUE;++i)
             policy.observe(o,now,time(nullptr),evidence_time_ok);
-        Decision d=policy.tick(now);
+        const auto committed=snapshot();
+        bool commit_ready=effective_outage_policy(committed.config)!=OutagePolicy::HoldLast ||
+            (committed.auto_saved_generation==policy.generation() && committed.auto_saved==AutoState::Home);
+        Decision d=policy.tick(now,commit_ready);
         portENTER_CRITICAL(&lock);
         if(state.inhibited || !control_epoch.matches(policy.generation()) || critical_fault || provisioning)d.commanded=false;
         if(!board::command(d.commanded)) {fail("gpio_command");board::command(false);d.commanded=false;}

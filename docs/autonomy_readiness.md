@@ -8,24 +8,34 @@ an installation diary or a claim that every hardware failure was measured.
 The design automatically recovers from ordinary power, Wi-Fi, DNS and temporary
 API outages when its prerequisites return. It cannot promise uninterrupted
 charging or indefinite operation without maintenance. In particular, a reboot
-or expired HOME lease requires a fresh qualifying location: a sleeping vehicle
+or expired HOME lease in the default `expire` mode requires a fresh qualifying location: a sleeping vehicle
 cannot recreate permission. The controller deliberately never wakes the car.
 
 Recovery fixes are included in source. Each installation must complete the
 [bench checklist](bench_checklist.md); compilation and simulation cannot establish
 unmeasured electrical or physical failure behavior.
 
+The explicit `hold_last` alternative preserves confirmed HOME through unavailable
+observations without an expiry cutoff and restores its last durably saved AUTO
+decision after ordinary power loss, following at least 30 seconds OFF.
+The matrix below describes default `expire` behavior unless stated otherwise;
+[the policy owner](architecture.md#holding-the-last-confirmed-auto-decision)
+defines the complete hold-last behavior. Both modes preserve manual OFF and local
+fault inhibition and use the same request caps. Only default expiry mode and
+watchdog/panic recovery require fresh HOME after reset.
+
 ## Recovery matrix
 
 | Condition | Automatic response and recovery | Intervention boundary |
 | --- | --- | --- |
-| Power loss, normal reset or watchdog reset | Starts OFF; loads committed configuration/token/accounting; rejoins Wi-Fi; resynchronizes UTC; persisted AUTO may obtain new evidence after the 30-second OFF dwell. No lease or timed override survives. | DISABLED remains DISABLED. A sleeping car must naturally wake and supply fresh GPS, or the owner must act. Damaged flash/hardware is not recoverable by software. |
-| Router, Wi-Fi or DHCP address loss | Retries Wi-Fi with a delay bounded at 60 seconds; DHCP loss also clears network/UTC readiness. Existing permission expires at its original deadline; a new IP requires a new SNTP sync. | Changed SSID/password or incompatible Wi-Fi security requires USB credential update. The local HTTPS URL/certificate must still match the reserved address. |
+| Power loss or normal reset | Starts OFF; loads committed configuration/token/accounting. Default expiry requires new HOME. Hold-last restores saved HOME after the minimum 30-second OFF dwell even without internet/UTC; saved AWAY or DISABLED stays OFF. No lease or timed override survives. | A cut before the latest decision commit can restore the previous saved decision. Damaged/corrupt storage faults OFF. |
+| Watchdog, panic or unrecognized reset | Clears saved AUTO permission durably and requires new HOME; failed clearing faults OFF. | This indicates a local fault rather than ordinary power recovery; inspect diagnostics if repeated. |
+| Router, Wi-Fi or DHCP address loss | Retries Wi-Fi with a delay bounded at 60 seconds; DHCP loss also clears network/UTC readiness. In expiry mode, existing permission expires at its original deadline; hold mode retains the last decision; a new IP requires a new SNTP sync. | Changed SSID/password or incompatible Wi-Fi security requires USB credential update. The local HTTPS URL/certificate must still match the reserved address. |
 | DNS, Internet, TLS connect or transient API failure | Finite SDK resolver/socket work and bounded HTTP progress checks; exponential backoff to about an hour with jitter. Retry activity never extends permission. | Recovery can take up to the current backoff. Invalid trust roots/certificates require repair or a firmware update, never disabled verification. |
 | NTP-only outage | New evidence and outbound TLS are inhibited once the last successful sync is more than six hours old. Existing monotonic lease/override deadlines do not move. SNTP continues retrying; successful synchronization restores eligibility. | Restore time-server reachability if both configured servers remain unavailable. NTP is not authenticated; this is a drift bound, not a defense against a hostile time source. |
 | HTTP 429 or 5xx | Honors Retry-After and backoff, then retries through the same single worker and spending caps. | A refresh whose request may have reached Tesla also has the bounded token-recovery rule below. |
 | Interrupted refresh/token response lost | Intent is durable before transmission. Up to 32 ambiguous attempts within 24 hours of the original uncertainty; replacement must commit before use. Proven-unsent failures restore only their own intent. | Exhausting the bound/window requires new consent. The device cannot reconstruct an unknown token indefinitely. A permanent `login_required`/revocation is not retried automatically. |
-| Daily/monthly local request cap | Stops renewal; existing permission expires. Retries local accounting hourly and resumes after the appropriate UTC period changes. Records survive reboot. | Other apps/account usage and future pricing remain outside this device's estimate. No automatic spending-limit increase. |
+| Daily/monthly local request cap | Stops polling/renewal; expiry mode turns OFF at the deadline, hold mode retains the last confirmed decision. Retries local accounting hourly and resumes after the appropriate UTC period changes. Records survive reboot. | Other apps/account usage and future pricing remain outside this device's estimate. No automatic spending-limit increase. |
 | Tesla billing-limit response | Pauses in that billing month. A newer synchronized UTC month releases only this pause, while retaining Retry-After and local caps. | Payment/account problems may require portal action. Permission, repeated authentication, redirect and storage pauses are not cleared by month changes. |
 | Temporary TLS/login allocation failure | Rejects that request, frees allocated resources and allows later retries. It does not permanently fault the independent control loop. Failed allocation size remains diagnostic. | Essential task/startup failure, failed cleanup, storage/configuration failure or control fault still inhibits output. |
 | Invalid/stale/negative GPS, OFFLINE or ONLINE without GPS | Does not renew; known newer AWAY invalidates immediately. Fresh qualifying evidence can recover after dwell. | No offset fitting, report-time fallback or automatic policy switch. Persistent upstream timestamp faults may need Tesla support. |
@@ -80,9 +90,10 @@ power loss around token commits, reboot/dwell, clock jumps, sync-age expiry,
 revocation, retry bounds and billing/calendar behavior.
 
 Linux/WSL tests also compile the production entrypoint and board adapter with
-test-only SDK calls. Twenty-one process-isolated scenarios verify startup
+test-only SDK calls. Thirty-seven process-isolated scenarios verify startup
 inhibition, task/storage/queue failures, GPIO errors, OFF during blocked I/O,
-lease expiry and control deadline/watchdog-feed failures. They verify command
+lease expiry, held HOME during blocked I/O, saved HOME/AWAY power recovery,
+pending/failed commits, local fault reset inhibition and control deadline/watchdog-feed failures. They verify command
 and state publication before feeding the watchdog. They do not simulate
 FreeRTOS concurrency or prove the physical watchdog's reset timing.
 

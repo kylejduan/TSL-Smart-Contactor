@@ -16,8 +16,8 @@ struct Profile {
     char certificate[2049]={}, private_key[4097]={}, origin[193]={};
     uint32_t crc=0;
 };
-// Config schema 2 uses one former padding byte. Existing NVS profiles retain
-// their exact layout/CRC coverage; schema 1 always selects strict GPS time.
+// Config schemas 2/3 use former padding bytes without changing NVS layout/CRC.
+// Schema 1 always uses GPS time; schemas 1/2 always expire AUTO authorization.
 static_assert(sizeof(Profile)==6720 && offsetof(Profile,config)==8 &&
               offsetof(Profile,ssid)==96 && offsetof(Profile,crc)==6712,
               "Stored profile layout changed; an explicit migration is required");
@@ -25,6 +25,8 @@ struct Snapshot {
     Config config{};
     Decision decision{};
     uint32_t generation=1;
+    uint32_t auto_saved_generation=0;
+    AutoState auto_saved=AutoState::Unknown;
     bool ready=false, utc_ok=false, inhibited=true, polling_paused=false;
     Vehicle vehicle=Vehicle::Unknown;
     Error error=Error::None;
@@ -45,7 +47,10 @@ Snapshot snapshot();
 uint32_t inhibit(); // Immediate OFF + invalidates in-flight and queued requests
 bool inhibit_current(uint32_t expected,uint32_t& acquired); // Reject stale non-OFF commands
 bool begin_provision(uint32_t expected,uint32_t& acquired); // 0 only for full USB replacement
-bool configure(const Config&,uint32_t epoch);
+bool configure(const Config&,uint32_t epoch,AutoState restored=AutoState::Unknown,int64_t order_source_s=0);
+void auto_commit_ack(const Snapshot&);
+void auto_storage_step();
+bool start_auto_storage();
 bool timed(uint32_t seconds,uint32_t epoch);
 bool submit(const Observation&);
 void network_status(uint32_t generation,Vehicle,Error,Ms last,Ms next,const BudgetRecord&,bool paused,FleetDiagnostics);

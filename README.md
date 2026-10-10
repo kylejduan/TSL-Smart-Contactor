@@ -259,8 +259,9 @@ Select AUTO before requesting a timed override: DISABLED blocks overrides. A tim
 override conspicuously bypasses Tesla presence/connectivity, but does not create
 HOME evidence. OFF cancels it. On expiry the controller uses independently maintained
 AUTO permission, preserving ON without a pulse when valid. Reboot loses all leases
-and overrides. An armed AUTO unit must acquire **new** qualifying evidence under
-its selected position policy before resuming. Every boot/OFF requires 30 seconds
+and overrides. Default `expire` AUTO must acquire **new** qualifying evidence under
+its selected position policy before resuming; explicitly selected `hold_last` can
+restore its durably saved AUTO decision. Every boot/OFF requires 30 seconds
 continuously OFF before ON.
 
 USB recovery OFF is also available:
@@ -297,8 +298,36 @@ Existing configurations and new provisioning default to strict `gps_source`.
 Review this tradeoff before changing `position_basis`; see the
 [local application guide](docs/local_app.md#settings-and-recovery).
 
-Arrival/departure detection normally takes up to about **10 minutes plus network
-latency**; retries/caps/asleep state can delay or prevent arrival authorization.
+The independent **Outage behavior** setting defaults to `expire`. Select
+`hold_last` to retain the last confirmed AUTO HOME/AWAY decision when there is no
+new valid position. HOME then remains authorized through Wi-Fi/internet/API
+failures, malformed or stale data, OFFLINE, sleep, and request-cap exhaustion.
+The ordinary freshness lease and 24-hour sleep ceiling no longer cause shutoff;
+the dashboard marks HOME as **retained** when its freshness lease has elapsed.
+A valid newer AWAY report, explicit OFF, permanent authorization loss, or a
+critical local fault still clears it. TIMED_ON remains a separate expiring override
+and cannot establish retained HOME. Freshness/identity checks still govern new
+positions; retries, duplicate data and receipt time do not create new evidence.
+
+**Hold-last can keep the outlet enabled indefinitely while the vehicle is away
+and the service cannot confirm departure.** It gives up the bounded outage cutoff
+in exchange for charging continuity. Polling/backoff and the fixed $10 gross Data
+cap are unchanged; hitting a cap pauses queries rather than spending more.
+AUTO/DISABLED and the outage selection survive reboot. In `hold_last`, the
+confirmed AUTO decision is also saved separately: ordinary power recovery starts
+OFF, then saved HOME resumes after at least 30 seconds OFF, even without internet
+or UTC. Saved AWAY, unknown state or DISABLED stays OFF. This restores a historical
+decision, never GPS freshness or a timed override. Watchdog/panic resets discard
+saved permission and require new HOME. Settings and mode changes clear old saved
+decisions. A new HOME waits for durable commit before physical ON; AWAY/OFF act
+immediately. A power cut before the OFF/AWAY commit can leave the previous saved
+decision; the dashboard reports pending storage. Corrupt records inhibit output.
+Saving `hold_last` uses configuration schema 3 without
+changing the NVS profile layout or credentials; older firmware rejects schema 3
+and stays OFF rather than silently changing the policy.
+
+With the default `expire` behavior, arrival/departure detection normally takes up
+to about **10 minutes plus network latency**; retries/caps/asleep state can delay or prevent arrival authorization.
 A known fresh AWAY result turns AUTO OFF immediately; otherwise a failed poll leaves
 only the existing lease, usually at most 15 minutes from its selected evidence
 timestamp. Historical GPS, report-time acceptance and the bounded sleep extension
@@ -322,8 +351,10 @@ The controller reserves at most **5,000 live-data attempts per UTC month**
 attempts and unused reservations after reboot. Configurable caps still default to
 400 total attempts/day and 12,000/month across status, location and refresh.
 Check-now has a 10-minute cooldown; automatic polling stays at 10 minutes so a
-successful qualifying HOME observation can renew its 15-minute lease. Reaching any cap stops renewal
-and cannot hold the outlet ON indefinitely. The UI shows conservative reservations
+successful qualifying HOME observation can renew its 15-minute lease. Reaching
+any cap pauses polling and renewal. Default `expire` turns OFF at its existing
+deadline; explicit `hold_last` retains the last confirmed AUTO decision until a
+valid change or local inhibition, without raising the cap. The UI shows conservative reservations
 and cost before discounts; other account usage and pricing changes can still lead
 to charges.
 
@@ -342,7 +373,7 @@ See [Tesla pricing](https://developer.tesla.com/) and the
 
 See the [autonomy audit](docs/autonomy_readiness.md) for the recovery matrix,
 prepared fixes and remaining maintenance/physical-test limits. Ordinary outages
-can recover automatically in AUTO, but a reboot or expired lease always needs
+can recover automatically in AUTO, but default `expire` after reboot or lease expiry needs
 fresh location evidence; a sleeping vehicle cannot restore authorization.
 
 | Symptom | Action |

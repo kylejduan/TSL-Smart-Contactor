@@ -215,6 +215,35 @@ const fs = require('node:fs/promises');
       for (const secret of ['5YJ3E1EA7KF000001', 'home_lat', 'home_lon', 'synthetic-csrf', 'synthetic-admin-password', 'reported_distance_m']) assert.equal(raw.includes(secret), false);
       assert.equal(report.events.length, 1);
     });
+    await run('hold-last is explicit, retains settings drafts, and never labels elapsed evidence as fresh', async () => {
+      await reset({ commissioned: true, dry_run: false, mode: 'AUTO', error: 'none', reason: 'no_auto_authorization' });
+      assert.equal(await page.locator('#setting-outage_policy').inputValue(), 'expire');
+      await page.locator('#setting-outage_policy').selectOption('hold_last'); await refresh();
+      assert.equal(await page.locator('#setting-outage_policy').inputValue(), 'hold_last');
+      assert.equal(await page.locator('#outage-note').isVisible(), false);
+      await waitText('outage-setting-help', 'saved HOME resumes after at least 30 seconds OFF');
+      assert.equal(await page.locator('#setting-lease_s').isDisabled(), true);
+      await page.locator('#save').click(); await waitText('confirm-text', 'without an expiry cutoff');
+      await page.locator('#confirmation button[value="cancel"]').click();
+      assert.equal((await read()).state.outage_policy, 'expire');
+      await page.locator('#save').click(); await page.locator('#confirm-accept').click();
+      await waitText('message', 'accepted');
+      await page.waitForFunction(() => document.getElementById('settings-dirty').hidden && !document.getElementById('save').disabled);
+      assert.equal((await read()).commands.at(-1).settings.outage_policy, 'hold_last');
+      await fixture({state:{auto_home:true,auto_retained:true,desired_on:true,lease_s:0,
+        reason:'auto_home_retained',gpio_command:'ON commanded',error:'local_request_cap'}});
+      await refresh(); await waitText('auto-state', 'freshness lease elapsed');
+      await waitText('lease', 'no outage cutoff'); await waitText('check-help', 'last AUTO decision is retained');
+      await waitText('outage-note', 'last saved HOME decision resumes after at least 30 seconds OFF');
+      await fixture({state:{auto_restored:true,auto_state_pending:false}});
+      await refresh();await waitText('auto-state','HOME restored from saved decision');
+      await fixture({state:{auto_restored:false,auto_state_pending:true,reason:'auto_state_commit_pending',gpio_command:'OFF commanded'}});
+      await refresh();await waitText('reason','Waiting for durable storage');
+      const before=(await read()).requests.length;await page.waitForTimeout(1100);
+      assert.equal((await read()).requests.length,before);
+      await page.locator('#off').click();await waitText('mode','DISABLED');
+      assert.equal((await read()).state.gpio_command,'OFF commanded');
+    });
     await run('hostile metadata stays text; fault recovery and event errors are visible', async () => {
       await fixture({ state: { fault: true, reason: 'critical_local_fault', fault_source: 'configuration_write', fleet_detail: '<img src=x onerror=alert(1)>', reauthorization_needed: true }, events_fail: true });
       await refresh(); await waitText('alert', 'Local fault');

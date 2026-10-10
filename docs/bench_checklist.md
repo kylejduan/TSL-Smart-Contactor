@@ -54,3 +54,18 @@ inaccessible reset controls and measurement-resolution limits explicitly.
 Return to DISABLED after testing. Complete separate electrical approval and
 resolve unexpected behavior before connecting mains and deliberately selecting
 AUTO. Firmware cannot detect welded contacts or identify the connected load.
+
+## Optional hold-last acceptance
+
+In an isolated USB-only setup, select `hold_last` deliberately. Confirm that a
+qualifying HOME observation establishes AUTO, loss of Wi-Fi/API data beyond the
+lease displays retained HOME, and a newer valid AWAY observation or explicit OFF
+commands OFF. Do not infer these results from a software build alone. Check that
+a power cycle begins OFF: saved HOME resumes only after the minimum 30-second
+OFF dwell, including with internet unavailable; saved AWAY/DISABLED stays OFF.
+Verify dry-run still keeps contacts open, TIMED_ON is not restored, watchdog/panic
+recovery discards HOME, and pending/failed/corrupt commits are visible and inhibited.
+Power cuts before/after an OFF/AWAY commit may preserve the old/new decision;
+measure this boundary rather than assuming GPIO and flash change atomically.
+Hold-last permits indefinite ON without departure confirmation. It does not
+verify voltage, contactor movement, electrical protection or physical presence.

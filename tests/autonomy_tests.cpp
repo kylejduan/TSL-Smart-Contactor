@@ -110,6 +110,54 @@ TEST(synthetic_year_recovers_from_repeated_outages_without_resetting_policy_or_c
     REQUIRE(!rebooted.needs_reauth());
 }
 
+TEST(hold_last_recovers_from_network_and_api_outages_without_canceling_confirmed_home) {
+    DurableMemory store;TokenJournal provision(store);
+    REQUIRE(provision.provision("synthetic-original")==Error::None);
+    SeasonalTransport io;FleetClient client(store,io,"synthetic-client");
+    REQUIRE(client.initialize()==Error::None);
+    auto cfg=config();cfg.outage_policy=uint8_t(OutagePolicy::HoldLast);
+    Policy policy;policy.configure(cfg,1,0);Scheduler scheduler;uint64_t sequence=0;
+    for(Ms minute=0;minute<=360;++minute) {
+        io.elapsed=minute*60000;
+        io.connected=minute<10 || minute>=60;
+        io.service_down=minute>=60 && minute<120;
+        io.away=minute>=30 && minute<240;
+        if(scheduler.due(io.now())) {
+            REQUIRE(scheduler.begin(io.now()));
+            Observation o;o.generation=1;o.request=++sequence;std::strcpy(o.vin,cfg.vin);
+            auto e=client.poll(cfg,1,o);
+            REQUIRE(e==Error::None || e==Error::Clock || e==Error::Server);
+            if(e==Error::None)policy.observe(o,io.now(),io.utc(),io.ready());
+            scheduler.finish(io.now(),e,cfg.poll_s,client.retry_s(),0);
+        }
+        auto d=policy.tick(io.now());
+        if(minute>=15 && minute<120)REQUIRE(d.commanded && d.retained && d.lease_left==0);
+        if(minute>=180 && minute<240)REQUIRE(!d.commanded && !d.auto_home);
+        if(minute>=300)REQUIRE(d.commanded && d.auto_home);
+        REQUIRE(client.counts().monthly[1]<=kMonthlyDataRequestCap);
+    }
+}
+
+TEST(hold_last_keeps_confirmed_home_at_budget_exhaustion_without_extra_requests) {
+    DurableMemory store;TokenJournal provision(store);
+    REQUIRE(provision.provision("synthetic-original")==Error::None);
+    SeasonalTransport io;FleetClient client(store,io,"synthetic-client");
+    REQUIRE(client.initialize()==Error::None);
+    auto cfg=config();cfg.outage_policy=uint8_t(OutagePolicy::HoldLast);
+    Policy policy;policy.configure(cfg,1,0);
+    Observation home;home.generation=1;home.request=1;std::strcpy(home.vin,cfg.vin);
+    REQUIRE(client.poll(cfg,1,home)==Error::None);policy.observe(home,0,io.utc(),true);
+    REQUIRE(policy.tick(30000).commanded);
+    const auto requests=io.requests;io.elapsed=900000;
+    auto budget=client.counts();budget.monthly[1]=kMonthlyDataRequestCap;seal(budget);
+    REQUIRE(store.write("budget",&budget,sizeof budget));
+    FleetClient capped(store,io,"synthetic-client");REQUIRE(capped.initialize()==Error::None);
+    Observation none;none.generation=1;none.request=2;std::strcpy(none.vin,cfg.vin);
+    REQUIRE(capped.poll(cfg,1,none)==Error::Budget);
+    REQUIRE(io.requests==requests);REQUIRE(policy.tick(io.now()).retained);
+    REQUIRE(policy.tick(io.now()).commanded && policy.tick(io.now()).lease_left==0);
+}
+
 TEST(selected_report_profile_sleeps_through_night_but_stops_at_fixed_ceiling) {
     DurableMemory store;TokenJournal provision(store);
     REQUIRE(provision.provision("synthetic-original")==Error::None);

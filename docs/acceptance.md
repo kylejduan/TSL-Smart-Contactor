@@ -26,3 +26,13 @@ fallback or vehicle wake is provided.
 Keep live logs, trip/charging history and hardware measurements in ignored private
 storage. Publish only synthetic examples and sanitized, reproducible software
 findings. Firmware is not electrical installation approval or contact feedback.
+
+## Optional hold-last policy
+
+`outage_policy=hold_last` trades the default bounded outage cutoff for continuity:
+confirmed HOME survives missing observations, outages, sleep and cap exhaustion
+until valid AWAY or explicit/local inhibition. Production native tests and browser
+fixtures cover this alternative, including saved HOME/AWAY restoration after
+startup dwell, commit inhibition/corruption, local-fault reset rejection and
+unchanged request caps. Real outage and power-cycle measurements remain local
+installation acceptance; no software result establishes physical presence.

@@ -5,8 +5,10 @@
 namespace tsl {
 using Ms = int64_t;
 enum class PositionBasis : uint8_t { GpsSource=0, VehicleReport=1 };
+enum class OutagePolicy : uint8_t { Expire=0, HoldLast=1 };
+enum class AutoState : uint8_t { Unknown=0, Away=1, Home=2 };
 struct Config {
-    uint32_t version = 2;
+    uint32_t version = 3;
     char vin[18] = {};
     double home_lat = 0, home_lon = 0;
     uint32_t enable_m = 100, disable_m = 200;
@@ -16,11 +18,15 @@ struct Config {
     bool commissioned = false, disabled = true, dry_run = true;
     uint8_t region = 0; // 0 NA, 1 EU; no arbitrary URL
     uint8_t position_basis = 0; // v1 stored padding here; never interpret it as opt-in.
+    uint8_t outage_policy = 0; // v1/v2 padding; only schema 3 can opt into holding HOME.
 };
 static_assert(sizeof(Config)==88 && offsetof(Config,region)==83 &&
-              offsetof(Config,position_basis)==84,"Preserve the stored Config layout");
+              offsetof(Config,position_basis)==84 && offsetof(Config,outage_policy)==85,
+              "Preserve the stored Config layout");
 PositionBasis effective_position_basis(const Config&);
 const char* position_basis_name(PositionBasis);
+OutagePolicy effective_outage_policy(const Config&);
+const char* outage_policy_name(OutagePolicy);
 bool valid_config(const Config& c);
 bool valid_vin(const char* vin);
 double distance_m(double lat1, double lon1, double lat2, double lon2);
@@ -40,13 +46,16 @@ struct Observation {
 };
 enum class Reason : uint8_t {
     Uncommissioned, Disabled, Fault, NoAuthorization, Home, Timed,
-    OffDwell, DryRun, ClockInvalid
+    OffDwell, DryRun, ClockInvalid, HomeRetained, HomePending
 };
 const char* reason_name(Reason r);
 const char* vehicle_name(Vehicle v);
 struct Decision {
     bool auto_home = false, desired = false, commanded = false;
     bool timed = false;
+    bool retained = false; // Held HOME after the ordinary freshness lease elapsed.
+    bool restored = false; // Historical decision, not restored GPS freshness.
+    AutoState auto_state = AutoState::Unknown;
     Ms lease_left = 0, override_left = 0;
     Reason reason = Reason::NoAuthorization;
     double distance = -1;
@@ -57,10 +66,11 @@ class Policy {
 public:
     explicit Policy(Ms boot = 0) : off_since_(boot) {}
     void configure(const Config&, uint32_t generation, Ms now);
+    void restore(AutoState,int64_t order_source_s=0); // No restored freshness lease.
     void off(uint32_t generation, Ms now);
     bool timed_on(uint32_t seconds, Ms now);
     void observe(const Observation&, Ms now, int64_t utc_s, bool clock_valid);
-    Decision tick(Ms now);
+    Decision tick(Ms now, bool auto_commit_ready=true);
     void fault(Ms now);
     void clock_discontinuity(Ms now);
     uint32_t generation() const { return generation_; }
@@ -73,6 +83,8 @@ private:
     int64_t last_seen_source_ = 0;
     Ms lease_ = 0, ceiling_ = 0, override_ = 0, off_since_ = 0;
     bool home_ = false, commanded_ = false, fault_ = false, configured_ = false;
+    bool restored_ = false;
+    AutoState auto_state_ = AutoState::Unknown;
     double distance_ = -1;
 };
 // Limit new evidence/TLS admission during NTP-only outages. This is separate

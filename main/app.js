@@ -7,6 +7,8 @@
     critical_local_fault: 'A local control or storage fault inhibits output. Inspect USB diagnostics.',
     no_auto_authorization: 'No valid home authorization. Waiting for qualifying location evidence.',
     auto_home_lease: 'A valid home lease authorizes the outlet.',
+    auto_home_retained: 'The last confirmed HOME decision is retained. Its freshness lease has elapsed; waiting for a valid position change.',
+    auto_state_commit_pending: 'HOME confirmed. Waiting for durable storage before enabling output.',
     timed_override_bypasses_presence: 'A timed override is bypassing vehicle presence and connectivity.',
     minimum_off_dwell: 'Waiting for the minimum continuous OFF interval before energizing.',
     dry_run_output_inhibited: 'The policy requests ON, but dry-run keeps the physical relay OFF.',
@@ -93,6 +95,9 @@
   regionLabel.append(region); $('location-settings').append(regionLabel);
   function settingsBasisHelp() {
     const reportBased = $('setting-position_basis').value === 'vehicle_report';
+    const held = $('setting-outage_policy').value === 'hold_last';
+    $('outage-setting-help').textContent = held ? 'Keeps confirmed HOME through outages, missing data, sleep and request-cap exhaustion without an expiry cutoff. The outlet can stay ON while the car is away until a valid AWAY report arrives. After an ordinary power loss, saved HOME resumes after at least 30 seconds OFF, even without internet. OFF, permanent authorization loss and critical local faults still inhibit output.' : 'An expired lease turns AUTO OFF. A sleeping response can only extend a live HOME lease within its fixed ceiling. Every reboot requires a new HOME report.';
+    $('setting-lease_s').disabled = held; $('setting-sleep_s').disabled = held;
     $('setting-max_age_s-label').textContent = reportBased ? 'Maximum vehicle report age · seconds' : 'Maximum GPS source age · seconds';
     $('setting-max_age_s-hint').textContent = reportBased ? 'Age of the vehicle report. Coordinates can be older than the report.' : 'Age of the source fix. Older fixes leave less authorization time.';
     $('setting-sleep_s-hint').textContent = reportBased ? 'At least the lease; measured from the last qualifying vehicle report.' : 'At least the lease; measured from the last qualifying source fix.';
@@ -151,7 +156,8 @@
     if (!state) return;
     for (const [key] of fields) { $('setting-' + key).value = state.settings[key]; $('setting-' + key).setCustomValidity(''); }
     region.value = state.settings.region; $('setting-dry_run').checked = state.settings.dry_run;
-    $('setting-position_basis').value = state.settings.position_basis || 'gps_source'; settingsBasisHelp();
+    $('setting-position_basis').value = state.settings.position_basis || 'gps_source';
+    $('setting-outage_policy').value = state.settings.outage_policy || 'expire'; settingsBasisHelp();
     dirty = false; $('settings-dirty').hidden = true;
   }
   function updateButtons() {
@@ -172,7 +178,9 @@
     $('mode').textContent = s.mode;
     $('dry-run').textContent = s.dry_run ? 'Dry-run · relay inhibited' : 'Physical output enabled';
     $('armed').textContent = s.commissioned ? 'Commissioned' : 'Not commissioned';
-    $('auto-state').textContent = s.auto_home ? 'HOME authorized' : 'Not authorized';
+    $('auto-state').textContent = s.auto_home ? (s.auto_restored ? 'HOME restored from saved decision' : s.auto_retained ? 'HOME retained · freshness lease elapsed' : 'HOME authorized') : 'Not authorized';
+    $('outage-note').hidden = s.outage_policy !== 'hold_last';
+    $('outage-note').textContent = 'Hold-last is enabled. Missing data or an internet/API outage does not turn a confirmed HOME decision OFF. Authorization can remain ON indefinitely until valid AWAY evidence, explicit OFF, permanent authorization loss or a critical local fault. After an ordinary power loss, the last saved HOME decision resumes after at least 30 seconds OFF, even without internet. Saved AWAY or DISABLED stays OFF. A watchdog/panic reset discards saved permission.';
     $('vehicle').textContent = readable(s.vehicle);
     $('distance').textContent = s.reported_distance_m < 0 ? 'Unavailable' : s.reported_distance_m.toFixed(1) + ' m';
     $('position-note').textContent = 'From configured home · GPS freshness unverified';
@@ -184,7 +192,7 @@
       s.location_age_s >= 0 ? (reportBased ? 'Report age at snapshot: ' : 'GPS source age at snapshot: ') + duration(s.location_age_s) :
       reportBased ? 'Waiting for a qualifying vehicle report timestamp.' : 'Waiting for qualifying GPS source-time evidence.';
     $('basis-note').hidden = !reportBased;
-    $('basis-note').textContent = reportBased ? 'Latest reported position is selected. Freshness, leases and the sleeping-home ceiling use vehicle report time. A current report can contain older coordinates; GPS acquisition age remains unverified.' : '';
+    $('basis-note').textContent = reportBased ? 'Latest reported position is selected. Freshness and the ordinary lease use vehicle report time. The outage policy decides whether an elapsed lease turns AUTO OFF. A current report can contain older coordinates; GPS acquisition age remains unverified.' : '';
     $('diagnostics-help').textContent = reportBased ? 'Local status refreshes do not query Tesla. AUTO uses vehicle report age; GPS source time remains diagnostic and does not establish coordinate age in this mode.' : 'Local status refreshes do not query Tesla. Reported positions with invalid GPS source time cannot renew AUTO.';
     const alert = s.fault ? 'Local fault: ' + readable(s.fault_source) + '. Output is inhibited. Use USB recovery.' :
       s.reauthorization_needed ? 'Tesla reauthorization or permission repair is needed. Use the USB helper; never replay an old token backup.' :
@@ -200,6 +208,8 @@
       ['UTC synchronized', s.utc_ready ? 'Yes' : 'No'], ['Uptime at snapshot', duration(s.uptime_s)],
       ['Last accepted poll', s.last_success_uptime_s ? 'At uptime ' + duration(s.last_success_uptime_s) : 'None this boot'],
       ['Freshness basis', reportBased ? 'Latest reported position · vehicle report time' : 'GPS source time · strict'],
+      ['Outage behavior', s.outage_policy === 'hold_last' ? 'Keep last confirmed AUTO decision' : 'Turn OFF at lease expiry'],
+      ['Saved AUTO decision', s.outage_policy === 'hold_last' ? (s.auto_state_pending ? 'Storage commit pending' : s.auto_restored ? 'Restored after restart' : 'Up to date') : 'Not restored after restart'],
       ['Last error', s.error === 'none' ? 'None' : reportBased && s.error === 'gps_source_time_unusable' ? 'GPS source time is unusable; the selected mode uses vehicle report time and does not establish GPS acquisition age.' : errors[s.error] || readable(s.error)],
       ['Control loop maximum gap', s.control_max_gap_ms + ' ms'], ['Free internal memory', Math.round(s.internal_heap_free / 1024) + ' KiB'],
       ['Local fault', s.fault ? readable(s.fault_source) : 'None'], ['Policy desired ON', s.desired_on ? 'Yes' : 'No'],
@@ -252,10 +262,10 @@
     if (!state) return;
     const age = elapsed(), s = state;
     $('updated').textContent = 'Snapshot ' + duration(age) + ' ago. Refresh to verify subsequent changes.';
-    $('lease').textContent = s.lease_s > age ? duration(s.lease_s - age) + ' until recorded lease expires' : 'No remaining lease in this snapshot';
+    $('lease').textContent = s.outage_policy === 'hold_last' && s.auto_home ? 'HOME retained until a confirmed change; no outage cutoff' : s.lease_s > age ? duration(s.lease_s - age) + ' until recorded lease expires' : 'No remaining lease in this snapshot';
     $('override').textContent = s.override_s > age ? duration(s.override_s - age) + ' until recorded override expires' : '';
     $('check-help').textContent = s.mode === 'DISABLED' ? 'Polling paused while DISABLED.' :
-      s.error === 'local_request_cap' ? 'A local cap is exhausted. Tesla requests cannot renew AUTO until the applicable UTC period resets.' :
+      s.error === 'local_request_cap' ? (s.outage_policy === 'hold_last' ? 'A local cap is exhausted. Polling pauses and the last AUTO decision is retained until the applicable UTC period resets.' : 'A local cap is exhausted. Tesla requests cannot renew AUTO until the applicable UTC period resets.') :
       s.poll_busy ? 'A Tesla request is in progress.' : s.next_poll_s < 0 ? 'Automatic polling is paused. Resolve the error before checking again.' :
       'Next scheduled poll in ' + duration(s.next_poll_s - age) + ' (as of this snapshot).';
     $('session').textContent = 'Session: ' + duration(s.session_left_s - age) + ' remaining';
@@ -347,15 +357,17 @@
     }
     settings.region = region.value; settings.dry_run = $('setting-dry_run').checked;
     settings.position_basis = $('setting-position_basis').value;
+    settings.outage_policy = $('setting-outage_policy').value;
     if (state.dry_run && !settings.dry_run) { message(errors.usb_commissioning_required, true); return; }
     const at = epoch, generation = state.generation;
     const basisWarning = settings.position_basis === 'vehicle_report' ? 'Latest reported position uses vehicle report time for freshness, leases and the sleeping-home ceiling. A current report can contain older coordinates; it does not prove GPS acquisition age. ' : 'GPS source time will be required for freshness, leases and the sleeping-home ceiling. ';
-    if (await confirmAction('Save settings?', basisWarning + 'This discards prior AUTO evidence and cancels any timed override. Your current mode is retained. New evidence is required before automatic authorization resumes.', 'Save settings') && at === epoch) action('settings', { settings, generation }, true);
+    const outageWarning = settings.outage_policy === 'hold_last' ? 'Hold-last keeps confirmed HOME without an expiry cutoff, including during internet/API failures, sleep and request-cap exhaustion. The outlet may remain ON while the car is away until valid AWAY evidence arrives. Ordinary power recovery resumes saved HOME after at least 30 seconds OFF, even without internet. A watchdog/panic reset requires new HOME evidence. ' : 'Authorization expiry turns AUTO OFF without valid renewal. ';
+    if (await confirmAction('Save settings?', outageWarning + basisWarning + 'This discards prior AUTO evidence and cancels any timed override. Your current mode is retained. New evidence is required before automatic authorization resumes.', 'Save settings') && at === epoch) action('settings', { settings, generation }, true);
   };
   $('export').onclick = () => {
     if (!state) return;
     // Deliberate allowlist: never spread status/settings into a support report.
-    const keys = ['mode', 'commissioned', 'dry_run', 'position_basis', 'gpio_command', 'reason', 'auto_home', 'lease_s', 'override_s', 'vehicle',
+    const keys = ['mode', 'commissioned', 'dry_run', 'position_basis', 'outage_policy', 'auto_retained', 'auto_restored', 'auto_state_pending', 'gpio_command', 'reason', 'auto_home', 'lease_s', 'override_s', 'vehicle',
       'wifi_connected', 'utc_ready', 'uptime_s', 'error', 'reauthorization_needed', 'poll_busy', 'fleet_endpoint', 'fleet_http_status',
       'fleet_detail', 'gps_source_text', 'fleet_txid', 'fleet_date', 'fleet_received_utc_s', 'report_timestamp_text', 'api_version',
       'attempts_this_boot', 'reserved_today', 'reserved_month', 'location_monthly_cap', 'ready', 'fault', 'fault_source', 'control_max_gap_ms', 'internal_heap_free', 'firmware_version', 'sdk_version'];

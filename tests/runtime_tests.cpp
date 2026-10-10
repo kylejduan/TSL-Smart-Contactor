@@ -1,12 +1,14 @@
 #include "runtime_sdk_stubs.hpp"
 #include "runtime.hpp"
 #include "storage.hpp"
+#include "auto_journal.hpp"
 #include <algorithm>
 #include <cstring>
 #include <ctime>
 #include <deque>
 #include <functional>
 #include <iostream>
+#include <map>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -29,6 +31,12 @@ struct Simulation {
     bool high_failure = false, watchdog_add_failure = false, watchdog_feed_failure = false;
     bool send_home = false, send_sleep = false, overflow = false;
     bool inside_setup = false;
+    bool block_commit=false,fail_commit=false,auto_task_failure=false,corrupt_record=false;
+    bool inspect_swap=false,swap_checked=false,inside_hook=false;
+    esp_reset_reason_t reset=ESP_RST_POWERON;
+    tsl::AutoRecord saved{};
+    bool record_present=false;
+    std::map<std::string,std::vector<uint8_t>> other_blobs;
     unsigned feeds = 0, gpio_calls = 0, published_gpio_calls = 0;
     AllocationCallback allocation_callback = nullptr;
     app::Profile profile{};
@@ -55,6 +63,18 @@ void home() {
     fix.source_s = synthetic_utc;
     CHECK(app::submit(fix));
 }
+}
+
+void runtime_unlock_hook() {
+    if(!sim.inspect_swap || sim.inside_hook)return;
+    sim.inside_hook=true;
+    const auto current=app::snapshot();
+    if(current.config.home_lon==0.1 && !current.inhibited) {
+        CHECK(current.decision.auto_state==tsl::AutoState::Unknown);
+        CHECK(!current.decision.auto_home && current.decision.last_source_s==0);
+        app::auto_storage_step();sim.inspect_swap=false;sim.swap_checked=true;
+    }
+    sim.inside_hook=false;
 }
 
 // Linker wrapping changes only this test executable's wall clock calls.
@@ -84,6 +104,7 @@ esp_err_t gpio_set_direction(gpio_num_t pin, int mode) {
 }
 void vTaskPrioritySet(TaskHandle_t, UBaseType_t priority) { CHECK(priority == 10); }
 BaseType_t xTaskCreate(TaskFunction_t, const char* name, std::uint32_t, void*, UBaseType_t, TaskHandle_t*) {
+    if(std::strcmp(name,"auto_storage")==0)return sim.auto_task_failure ? pdFALSE : pdPASS;
     CHECK(std::strcmp(name, "usb_provision") == 0);
     return sim.usb_failure ? pdFALSE : pdPASS;
 }
@@ -105,8 +126,10 @@ void vTaskDelayUntil(TickType_t* wake, TickType_t interval) {
     *wake += interval;
     sim.now += interval;
     if (sim.advance) sim.advance(sim.now);
+    if(!sim.block_commit)app::auto_storage_step();
     if (sim.now >= sim.until) throw EndSimulation{};
 }
+void vTaskDelay(TickType_t) {throw std::runtime_error("unexpected storage thread execution");}
 QueueHandle_t xQueueCreateStatic(UBaseType_t count, UBaseType_t size, std::uint8_t*, StaticQueue_t*) {
     CHECK(count == 8 && size == sizeof(tsl::Observation));
     return sim.queue_failure ? nullptr : &sim.queue;
@@ -143,11 +166,38 @@ esp_err_t heap_caps_register_failed_alloc_callback(AllocationCallback callback) 
 bool esp_psram_is_initialized() { return !sim.psram_failure; }
 std::size_t esp_psram_get_size() { return 8 * 1024 * 1024; }
 std::uint32_t esp_random() { return 12345; }
+esp_reset_reason_t esp_reset_reason() {return sim.reset;}
 namespace app {
 NvsStore& storage() { static NvsStore store; return store; }
 bool NvsStore::initialize() { sim.startup.emplace_back("storage"); return !sim.storage_failure; }
-ReadResult NvsStore::read(const char*, void*, std::size_t) { return ReadResult::Missing; }
-bool NvsStore::write(const char*, const void*, std::size_t) { throw std::runtime_error("unexpected NVS write"); }
+ReadResult NvsStore::read(const char* key, void* out, std::size_t size) {
+    if(std::strcmp(key,"auto_state")) {
+        const auto found=sim.other_blobs.find(key);
+        if(found==sim.other_blobs.end())return ReadResult::Missing;
+        CHECK(found->second.size()==size);std::memcpy(out,found->second.data(),size);return ReadResult::Ok;
+    }
+    CHECK(std::strcmp(key,"auto_state")==0 && size==sizeof sim.saved);
+    if(!sim.record_present)return ReadResult::Missing;
+    std::memcpy(out,&sim.saved,size);return ReadResult::Ok;
+}
+bool NvsStore::write(const char* key, const void* input, std::size_t size) {
+    if(std::strcmp(key,"auto_state")) {
+        const auto* data=static_cast<const uint8_t*>(input);sim.other_blobs[key]={data,data+size};return true;
+    }
+    CHECK(std::strcmp(key,"auto_state")==0 && size==sizeof sim.saved);
+    if(sim.fail_commit)return false;
+    std::memcpy(&sim.saved,input,size);sim.record_present=true;return true;
+}
+Error load_auto_state(const Config& config,AutoState& state,int64_t& source,bool resume) {
+    return recover_auto_state(storage(),config,resume,state,source);
+}
+Error persist_auto_state(const Snapshot& requested) {
+    const auto current=snapshot();
+    if(current.generation!=requested.generation || provisioning)return Error::Unavailable;
+    AutoJournal journal(storage());
+    return critical_fault || current.inhibited || current.config.disabled ? journal.clear() :
+        journal.save(current.config,requested.decision.auto_state,requested.decision.last_source_s);
+}
 ReadResult load_profile(Profile& profile) {
     profile = sim.profile;
     return sim.missing_profile ? ReadResult::Missing : ReadResult::Ok;
@@ -188,9 +238,31 @@ int main(int argc, char** argv) {
         cfg.commissioned = true;
         cfg.disabled = false;
         cfg.dry_run = false;
+        tsl::TokenJournal tokens(app::storage());CHECK(tokens.provision("synthetic-refresh-token")==tsl::Error::None);
+        if(scenario.rfind("held_",0)==0)cfg.outage_policy=uint8_t(tsl::OutagePolicy::HoldLast);
+        if(scenario.rfind("held_saved_",0)==0) {
+            sim.saved.config_crc=tsl::auto_config_crc(cfg);
+            sim.saved.state=scenario=="held_saved_away" ? tsl::AutoState::Away : tsl::AutoState::Home;
+            tsl::seal(sim.saved);sim.record_present=true;
+            if(scenario=="held_saved_disabled")cfg.disabled=true;
+            if(scenario=="held_saved_dry_run") {cfg.dry_run=true;sim.saved.config_crc=tsl::auto_config_crc(cfg);tsl::seal(sim.saved);}
+            if(scenario=="held_saved_watchdog")sim.reset=ESP_RST_TASK_WDT;
+            if(scenario=="held_saved_corrupt")sim.saved.crc^=1;
+        }
         if (scenario == "boot") sim.missing_profile = true;
-        else if (scenario == "armed_boot") {} // Persisted AUTO has no reusable lease.
-        else if (scenario == "asleep_boot") sim.send_sleep = true;
+        else if(scenario.rfind("held_saved_",0)==0) {
+            sim.advance=[](tsl::Ms) {app::wifi_connected=false;app::utc_synced=false;app::utc_continuity=false;};
+        }
+        else if(scenario=="held_storage_task_failure")sim.auto_task_failure=true;
+        else if(scenario=="held_commit_blocked" || scenario=="held_commit_failure" || scenario=="held_off_pending") {
+            sim.send_home=true;sim.block_commit=true;
+            if(scenario=="held_commit_failure") {sim.block_commit=false;sim.fail_commit=true;}
+            if(scenario=="held_off_pending")sim.advance=[](tsl::Ms now) {
+                if(now==30050) {CHECK(!sim.gpio);app::inhibit();sim.block_commit=false;}
+            };
+        }
+        else if (scenario == "armed_boot" || scenario == "held_boot") {} // No reusable HOME state.
+        else if (scenario == "asleep_boot" || scenario == "held_asleep_boot") sim.send_sleep = true;
         else if (scenario == "disabled") { cfg.disabled = true; sim.send_home = true; }
         else if (scenario == "uncommissioned") { cfg.commissioned = false; sim.send_home = true; }
         else if (scenario == "dry_run") { cfg.dry_run = true; sim.send_home = true; }
@@ -206,14 +278,17 @@ int main(int argc, char** argv) {
         else {
             sim.send_home = true;
             app::network_busy = true; // The worker stays blocked for the entire run.
-            if (scenario == "lease_expiry") sim.until = 900100;
+            if (scenario == "lease_expiry" || scenario == "held_outage") sim.until = 900100;
             else if (scenario == "gpio_failure") sim.high_failure = true;
-            else if (scenario == "off_during_io") {
+            else if (scenario == "off_during_io" || scenario == "held_off") {
                 sim.advance = [&](tsl::Ms now) {
                     if (now != 30050) return;
                     CHECK(sim.gpio);
-                    const auto before = app::snapshot().generation;
+                    const auto committed = app::snapshot();
+                    const auto before = committed.generation;
                     app::inhibit();
+                    app::auto_commit_ack(committed); // Late storage completion cannot undo OFF.
+                    CHECK(app::snapshot().auto_saved_generation!=app::snapshot().generation);
                     CHECK(!app::configure(cfg, before));
                     CHECK(!app::timed(3600, before));
                     // A result from the previously blocked request may arrive.
@@ -225,9 +300,18 @@ int main(int argc, char** argv) {
                     late.source_s = synthetic_utc + 30;
                     CHECK(app::submit(late));
                 };
-            } else if (scenario == "control_deadline") {
+            } else if (scenario == "control_deadline" || scenario == "held_control_deadline") {
                 sim.advance = [](tsl::Ms now) { if (now == 30050) sim.now += 300; };
                 sim.until = 30500;
+            } else if(scenario=="held_config_swap") {
+                sim.advance=[&](tsl::Ms now) {
+                    if(now!=30050)return;
+                    CHECK(sim.gpio);uint32_t epoch;
+                    CHECK(app::inhibit_current(app::snapshot().generation,epoch));
+                    cfg.home_lon=0.1;
+                    tsl::AutoJournal journal(app::storage());CHECK(journal.clear()==tsl::Error::None);
+                    sim.inspect_swap=true;CHECK(app::configure(cfg,epoch));
+                };
             } else if (scenario == "watchdog_feed_failure") {
                 sim.advance = [](tsl::Ms now) { if (now == 30050) sim.watchdog_feed_failure = true; };
             } else if (scenario == "recoverable_allocation") {
@@ -252,16 +336,36 @@ int main(int argc, char** argv) {
         else if (scenario == "psram_failure") expect_fault("psram_init");
         else if (scenario == "watchdog_add_failure") expect_fault("watchdog_init");
         else if (scenario == "queue_overflow") expect_fault("observation_queue");
+        else if(scenario=="held_saved_corrupt")expect_fault("auto_state_load");
+        else if(scenario=="held_commit_failure")expect_fault("auto_state_write");
+        else if(scenario=="held_storage_task_failure")expect_fault("auto_storage_task");
         else if (scenario == "gpio_failure") expect_fault("gpio_command");
-        else if (scenario == "control_deadline") { expect_fault("control_deadline"); CHECK(ever_on()); }
+        else if (scenario == "control_deadline" || scenario == "held_control_deadline") { expect_fault("control_deadline"); CHECK(ever_on()); }
         else if (scenario == "watchdog_feed_failure") { expect_fault("watchdog_feed"); CHECK(ever_on()); }
         else {
             CHECK(!app::critical_fault);
-            if (scenario == "lease_expiry") {
+            if(scenario=="held_saved_home") {
+                CHECK(sim.gpio && app::snapshot().decision.restored && app::snapshot().decision.retained);
+                CHECK(sim.edges[1]==std::make_pair(tsl::Ms(30000),true));
+                CHECK(app::snapshot().decision.last_source_s==0 && !app::snapshot().utc_ok);
+            } else if(scenario=="held_commit_blocked") {
+                CHECK(!ever_on() && app::snapshot().decision.reason==tsl::Reason::HomePending);
+                CHECK(app::snapshot().decision.auto_home && !sim.record_present);
+            } else if(scenario=="held_off_pending") {
+                CHECK(!ever_on() && app::snapshot().config.disabled);
+                CHECK(sim.saved.state==tsl::AutoState::Unknown);
+            } else if(scenario=="held_config_swap") {
+                CHECK(sim.swap_checked && ever_on() && !sim.gpio);
+                CHECK(app::snapshot().config.home_lon==0.1 && !app::snapshot().decision.auto_home);
+                CHECK(sim.saved.state==tsl::AutoState::Unknown);
+            } else if (scenario == "lease_expiry") {
                 CHECK(sim.edges.size() == 3);
                 CHECK(sim.edges[1] == std::make_pair(tsl::Ms(30000), true));
                 CHECK(sim.edges[2] == std::make_pair(tsl::Ms(900000), false));
-            } else if (scenario == "off_during_io") {
+            } else if (scenario == "held_outage") {
+                CHECK(sim.gpio && app::snapshot().decision.retained);
+                CHECK(app::snapshot().decision.lease_left==0 && sim.edges.size()==2);
+            } else if (scenario == "off_during_io" || scenario == "held_off") {
                 CHECK(sim.edges.size() == 3);
                 CHECK(sim.edges[2] == std::make_pair(tsl::Ms(30050), false));
                 CHECK(app::snapshot().config.disabled && !app::snapshot().decision.auto_home);
@@ -270,9 +374,11 @@ int main(int argc, char** argv) {
             } else {
                 CHECK(!ever_on());
                 if (scenario == "dry_run") CHECK(app::snapshot().decision.desired);
+                if(scenario=="held_saved_dry_run")CHECK(app::snapshot().decision.desired && app::snapshot().decision.restored);
+                if(scenario=="held_saved_watchdog")CHECK(sim.saved.state==tsl::AutoState::Unknown);
             }
         }
-        if (app::critical_fault && scenario != "control_deadline" && scenario != "watchdog_feed_failure")
+        if (app::critical_fault && scenario != "control_deadline" && scenario != "held_control_deadline" && scenario != "watchdog_feed_failure")
             CHECK(!ever_on());
         std::cout << "PASS production app_main: " << scenario << '\n';
         return 0;

@@ -4,6 +4,7 @@
   "home_lon": null,
   "region": "NA",
   "position_basis": "gps_source",
+  "outage_policy": "expire",
   "enable_m": 100,
   "disable_m": 200,
   "max_age_s": 120,

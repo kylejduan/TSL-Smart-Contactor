@@ -128,8 +128,12 @@ void process(const char* input) {
     }
     if(j.equal(op,"diagnostics")) {diagnostics();return;}
     if(j.equal(op,"status")) {
-        auto s=snapshot();char b[256]={};
-        std::snprintf(b,sizeof b,"{\"position_basis\":\"%s\",\"config_version\":%lu,\"generation\":%lu,\"ready\":%s,\"commissioned\":%s,\"disabled\":%s,\"dry_run\":%s,\"commanded_on\":%s,\"fault\":%s}",
+        auto s=snapshot();char b[512]={};
+        std::snprintf(b,sizeof b,"{\"outage_policy\":\"%s\",\"auto_retained\":%s,\"auto_restored\":%s,\"auto_state_pending\":%s,\"position_basis\":\"%s\",\"config_version\":%lu,\"generation\":%lu,\"ready\":%s,\"commissioned\":%s,\"disabled\":%s,\"dry_run\":%s,\"commanded_on\":%s,\"fault\":%s}",
+            outage_policy_name(effective_outage_policy(s.config)),s.decision.retained?"true":"false",
+            s.decision.restored?"true":"false",
+            effective_outage_policy(s.config)==OutagePolicy::HoldLast &&
+                (s.auto_saved_generation!=s.generation || s.auto_saved!=s.decision.auto_state) ? "true":"false",
             position_basis_name(effective_position_basis(s.config)),(unsigned long)s.config.version,
             (unsigned long)s.generation,s.ready?"true":"false",s.config.commissioned?"true":"false",s.config.disabled?"true":"false",
             s.config.dry_run?"true":"false",s.decision.commanded?"true":"false",critical_fault?"true":"false");

@@ -21,7 +21,8 @@ inline constexpr portMUX_TYPE portMUX_INITIALIZER_UNLOCKED = 0;
 inline constexpr BaseType_t pdTRUE = 1, pdPASS = 1, pdFALSE = 0;
 inline constexpr TickType_t pdMS_TO_TICKS(std::uint32_t ms) { return ms; }
 inline void portENTER_CRITICAL(portMUX_TYPE*) {}
-inline void portEXIT_CRITICAL(portMUX_TYPE*) {}
+void runtime_unlock_hook(); // Test-only forced worker interleaving.
+inline void portEXIT_CRITICAL(portMUX_TYPE*) {runtime_unlock_hook();}
 
 enum gpio_num_t { GPIO_NUM_47 = 47 };
 inline constexpr int GPIO_MODE_OUTPUT = 1;
@@ -33,6 +34,7 @@ BaseType_t xTaskCreatePinnedToCore(TaskFunction_t, const char*, std::uint32_t, v
 void vTaskDelete(TaskHandle_t);
 TickType_t xTaskGetTickCount();
 void vTaskDelayUntil(TickType_t*, TickType_t);
+void vTaskDelay(TickType_t);
 QueueHandle_t xQueueCreateStatic(UBaseType_t, UBaseType_t, std::uint8_t*, StaticQueue_t*);
 BaseType_t xQueueSend(QueueHandle_t, const void*, TickType_t);
 BaseType_t xQueueReceive(QueueHandle_t, void*, TickType_t);
@@ -44,3 +46,6 @@ esp_err_t heap_caps_register_failed_alloc_callback(AllocationCallback);
 bool esp_psram_is_initialized();
 std::size_t esp_psram_get_size();
 std::uint32_t esp_random();
+enum esp_reset_reason_t { ESP_RST_UNKNOWN, ESP_RST_POWERON, ESP_RST_EXT, ESP_RST_SW,
+    ESP_RST_PANIC, ESP_RST_TASK_WDT, ESP_RST_BROWNOUT, ESP_RST_PWR_GLITCH };
+esp_reset_reason_t esp_reset_reason();

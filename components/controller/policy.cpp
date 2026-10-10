@@ -14,6 +14,16 @@ const char* position_basis_name(PositionBasis basis) {
     }
     return "unknown";
 }
+OutagePolicy effective_outage_policy(const Config& c) {
+    return c.version<3 ? OutagePolicy::Expire : static_cast<OutagePolicy>(c.outage_policy);
+}
+const char* outage_policy_name(OutagePolicy policy) {
+    switch(policy) {
+    case OutagePolicy::Expire:return "expire";
+    case OutagePolicy::HoldLast:return "hold_last";
+    }
+    return "unknown";
+}
 bool valid_vin(const char* s) {
     if (std::strlen(s) != 17) return false;
     for (int i = 0; i < 17; ++i)
@@ -22,7 +32,8 @@ bool valid_vin(const char* s) {
     return true;
 }
 bool valid_config(const Config& c) {
-    return (c.version == 1 || (c.version == 2 && c.position_basis<=1)) &&
+    return (c.version == 1 || (c.version == 2 && c.position_basis<=1) ||
+            (c.version == 3 && c.position_basis<=1 && c.outage_policy<=1)) &&
         c.vin[17] == 0 && valid_vin(c.vin) &&
         std::isfinite(c.home_lat) && std::isfinite(c.home_lon) &&
         std::abs(c.home_lat) <= 90 && std::abs(c.home_lon) <= 180 &&
@@ -39,9 +50,18 @@ double distance_m(double la, double lo, double lb, double lob) {
     const double h = std::clamp(a*a + std::cos(la*rad)*std::cos(lb*rad)*b*b, 0.0, 1.0);
     return 6371008.8 * 2 * std::atan2(std::sqrt(h), std::sqrt(1-h));
 }
-void Policy::invalidate() { home_ = false; lease_ = 0; ceiling_ = 0; }
+void Policy::invalidate() {
+    home_ = false; lease_ = 0; ceiling_ = 0;
+    auto_state_ = AutoState::Unknown; restored_ = false;
+}
+void Policy::restore(AutoState state,int64_t source) {
+    if(!configured_ || fault_ || !config_.commissioned || config_.disabled ||
+       effective_outage_policy(config_)!=OutagePolicy::HoldLast ||
+       (state!=AutoState::Home && state!=AutoState::Away))return;
+    auto_state_=state;home_=state==AutoState::Home;restored_=true;last_seen_source_=source;
+}
 void Policy::expire(Ms now) {
-    if (home_ && now >= lease_) invalidate();
+    if (home_ && now >= lease_ && effective_outage_policy(config_)==OutagePolicy::Expire) invalidate();
     if (override_ && now >= override_) override_ = 0;
 }
 void Policy::configure(const Config& c, uint32_t gen, Ms now) {
@@ -59,8 +79,11 @@ void Policy::off(uint32_t gen, Ms now) {
 }
 void Policy::fault(Ms now) { fault_ = true; invalidate(); override_ = 0; tick(now); }
 void Policy::clock_discontinuity(Ms now) {
-    invalidate(); // explicit timed override uses monotonic time and remains independent
-    tick(now);
+    // A clock outage cannot confirm departure. Never claim retained evidence is
+    // still fresh; admission of new evidence remains guarded by synchronized UTC.
+    if (effective_outage_policy(config_)==OutagePolicy::HoldLast) { lease_=0;ceiling_=0; }
+    else invalidate();
+    (void)now; // The owning control tick applies the durable-commit gate.
 }
 bool Policy::timed_on(uint32_t seconds, Ms now) {
     expire(now);
@@ -90,9 +113,10 @@ void Policy::observe(const Observation& o, Ms now, int64_t utc, bool clock_valid
         o.source_s <= last_seen_source_ || o.source_s > utc + config_.future_s ||
         utc-o.source_s > config_.max_age_s) return;
     last_seen_source_ = o.source_s;
+    restored_ = false;
     distance_ = distance_m(config_.home_lat, config_.home_lon, o.lat, o.lon);
-    if (distance_ >= config_.disable_m) { invalidate(); return; }
-    if (distance_ <= config_.enable_m) home_ = true;
+    if (distance_ >= config_.disable_m) { invalidate(); auto_state_=AutoState::Away; return; }
+    if (distance_ <= config_.enable_m) { home_ = true; auto_state_=AutoState::Home; }
     if (!home_) return;
     // Anchor both deadlines to the explicitly selected timestamp basis. Report
     // age is a weaker opt-in proxy and never establishes GPS acquisition age.
@@ -101,12 +125,14 @@ void Policy::observe(const Observation& o, Ms now, int64_t utc, bool clock_valid
     lease_ = now + Ms(config_.lease_s)*1000 - age;
     ceiling_ = now + Ms(config_.sleep_s)*1000 - age;
 }
-Decision Policy::tick(Ms now) {
+Decision Policy::tick(Ms now, bool auto_commit_ready) {
     expire(now);
     Decision d;
-    d.auto_home = home_ && now < lease_;
+    d.auto_home = home_ && (now < lease_ || effective_outage_policy(config_)==OutagePolicy::HoldLast);
+    d.retained = d.auto_home && now >= lease_;
+    d.restored = restored_; d.auto_state = auto_state_;
     d.timed = override_ > now;
-    d.lease_left = d.auto_home ? lease_-now : 0;
+    d.lease_left = d.auto_home && now<lease_ ? lease_-now : 0;
     d.override_left = d.timed ? override_-now : 0;
     d.distance = distance_; d.last_source_s = last_seen_source_;
     if (fault_ || !configured_) d.reason = Reason::Fault;
@@ -115,8 +141,9 @@ Decision Policy::tick(Ms now) {
     else if (!(d.auto_home || d.timed)) d.reason = Reason::NoAuthorization;
     else {
         d.desired = true;
-        d.reason = d.timed ? Reason::Timed : Reason::Home;
-        if (!commanded_ && now-off_since_ < Ms(config_.dwell_s)*1000) d.reason = Reason::OffDwell;
+        d.reason = d.timed ? Reason::Timed : d.retained ? Reason::HomeRetained : Reason::Home;
+        if (!d.timed && !auto_commit_ready) d.reason = Reason::HomePending;
+        else if (!commanded_ && now-off_since_ < Ms(config_.dwell_s)*1000) d.reason = Reason::OffDwell;
         else if (config_.dry_run) d.reason = Reason::DryRun;
         else d.commanded = true;
     }
@@ -145,6 +172,8 @@ const char* reason_name(Reason r) {
     case Reason::Fault: return "critical_local_fault";
     case Reason::NoAuthorization: return "no_auto_authorization";
     case Reason::Home: return "auto_home_lease";
+    case Reason::HomeRetained: return "auto_home_retained";
+    case Reason::HomePending: return "auto_state_commit_pending";
     case Reason::Timed: return "timed_override_bypasses_presence";
     case Reason::OffDwell: return "minimum_off_dwell";
     case Reason::DryRun: return "dry_run_output_inhibited";

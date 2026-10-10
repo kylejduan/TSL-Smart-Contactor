@@ -1,4 +1,5 @@
 #include "storage.hpp"
+#include "auto_journal.hpp"
 #include "nvs_flash.h"
 #include "mbedtls/pkcs5.h"
 #include "mbedtls/md.h"
@@ -16,7 +17,7 @@ bool NvsStore::initialize() {
     mutex_=xSemaphoreCreateMutexStatic(&mutex_data_);
     config_mutex=xSemaphoreCreateMutexStatic(&config_mutex_data);
     // Never erase NVS on version, space, corruption or initialization errors.
-    return mutex_ && nvs_flash_init()==ESP_OK && nvs_open("controller",NVS_READWRITE,&handle_)==ESP_OK;
+    return mutex_ && config_mutex && nvs_flash_init()==ESP_OK && nvs_open("controller",NVS_READWRITE,&handle_)==ESP_OK;
 }
 ReadResult NvsStore::read(const char* key,void* p,size_t n) {
     if(!handle_ || xSemaphoreTake(mutex_,pdMS_TO_TICKS(5000))!=pdTRUE)return ReadResult::Failed;
@@ -42,6 +43,31 @@ bool intact_profile(const Profile& p) {
 static bool save_profile(Profile& p) {
     seal(p);return storage().write("profile",&p,sizeof p);
 }
+Error load_auto_state(const Config& config,AutoState& state,int64_t& source,bool allow_restore) {
+    if(!config_mutex || xSemaphoreTake(config_mutex,pdMS_TO_TICKS(5000))!=pdTRUE)return Error::Storage;
+    auto result=recover_auto_state(storage(),config,allow_restore,state,source);
+    xSemaphoreGive(config_mutex);return result;
+}
+Error persist_auto_state(const Snapshot& requested) {
+    if(!config_mutex || xSemaphoreTake(config_mutex,pdMS_TO_TICKS(5000))!=pdTRUE)return Error::Storage;
+    auto current=snapshot();Error result=Error::Unavailable;
+    // Serialize with profile/OFF/provision writers. Never commit a stale HOME
+    // after a generation change; OFF is processed by control without this lock.
+    if(!provisioning && current.ready && current.generation==requested.generation &&
+       current.decision.auto_state==requested.decision.auto_state) {
+        AutoJournal journal(storage());
+        if(critical_fault || current.inhibited || current.config.disabled)result=journal.clear();
+        else {
+            static Profile profile;
+            bool matches=load_profile(profile)==ReadResult::Ok &&
+                auto_config_crc(profile.config)==auto_config_crc(requested.config);
+            result=matches ? journal.save(profile.config,requested.decision.auto_state,
+                                           requested.decision.last_source_s) : Error::Storage;
+            mbedtls_platform_zeroize(&profile,sizeof profile);
+        }
+    }
+    xSemaphoreGive(config_mutex);return result;
+}
 bool provision_profile(Profile& next,const char* refresh,const char*& stage) {
     if(!config_mutex || xSemaphoreTake(config_mutex,pdMS_TO_TICKS(5000))!=pdTRUE) {
         fail("provision_lock");return false;
@@ -55,6 +81,8 @@ bool provision_profile(Profile& next,const char* refresh,const char*& stage) {
         uint8_t pending=1;
         stage="pending_commit";
         ok=storage().write("provisioning",&pending,sizeof pending);
+        if(ok) {stage="auto_state_commit";AutoRecord empty;seal(empty);
+            ok=storage().write("auto_state",&empty,sizeof empty);}
         TokenJournal journal(storage());
         if(ok) {stage="token_commit";ok=journal.provision(refresh)==Error::None;}
         if(ok) {stage="profile_commit";ok=save_profile(next);}
@@ -81,7 +109,7 @@ bool update_wifi(const char* ssid,const char* password,uint32_t epoch) {
         std::memset(p.wifi_password,0,sizeof p.wifi_password);
         std::memcpy(p.ssid,ssid,std::strlen(ssid));
         std::memcpy(p.wifi_password,password,std::strlen(password));
-        ok=save_profile(p);
+        AutoJournal journal(storage());ok=journal.clear()==Error::None && save_profile(p);
         if(!ok)fail("wifi_update_write");
     }
     mbedtls_platform_zeroize(&p,sizeof p);
@@ -186,7 +214,10 @@ bool change_config(Change change,uint32_t epoch,const Config* settings) {
             ok=p.config.commissioned;p.config.dry_run=false;p.config.disabled=true;break;
         }
     }
-    ok=ok && valid_config(p.config) && save_profile(p);
+    // Clear before saving even identical settings or OFF->AUTO, preventing an
+    // old matching HOME record from returning after a future mode change.
+    AutoJournal journal(storage());
+    ok=ok && valid_config(p.config) && journal.clear()==Error::None && save_profile(p);
     bool superseded=snapshot().generation!=epoch;
     if(ok && superseded) {
         // OFF can preempt an NVS write. Before releasing this writer, overwrite

@@ -40,6 +40,23 @@ class Reply:
 
 
 class ObserverTests(unittest.TestCase):
+    def test_retained_home_is_distinct_from_fresh_lease_without_exposing_secrets(self):
+        document=dict(status(),outage_policy="hold_last",auto_retained=True,
+                      reason="auto_home_retained",lease_s=0)
+        safe=observer.safe_status(document)
+        self.assertEqual(safe["outage_policy"],"hold_last")
+        self.assertTrue(safe["auto_retained"])
+        self.assertEqual(safe["lease_s"],0)
+        pending=observer.safe_status(dict(document,auto_restored=True,auto_state_pending=True,
+                                          reason="auto_state_commit_pending"))
+        self.assertTrue(pending["auto_restored"])
+        self.assertTrue(pending["auto_state_pending"])
+        self.assertEqual(pending["reason"],"auto_state_commit_pending")
+        self.assertNotIn("synthetic-secret",json.dumps(safe))
+        self.assertEqual(observer.safe_events({"events":[{
+            "uptime_s":1000,"reason":"auto_home_retained","commanded_on":True}]}),[
+            {"uptime_s":1000,"reason":"auto_home_retained","commanded_on":True}])
+
     def client(self):
         with mock.patch.object(observer.ssl, "create_default_context"):
             return observer.LocalClient("https://10.23.45.67", Path("synthetic.pem"), "synthetic-password")

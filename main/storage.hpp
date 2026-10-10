@@ -14,6 +14,8 @@ private:
 };
 NvsStore& storage();
 ReadResult load_profile(Profile&);
+Error load_auto_state(const Config&,AutoState&,int64_t& order_source_s,bool allow_restore);
+Error persist_auto_state(const Snapshot&);
 // Caller validates the profile, stops the runtime refresh owner and wipes inputs.
 // Serialize all provisioning records with OFF/settings/password profile writers.
 bool provision_profile(Profile& next,const char* refresh,const char*& stage);

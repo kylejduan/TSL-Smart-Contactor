@@ -152,7 +152,7 @@ TEST(configuration_basis_is_explicit_and_old_records_migrate_strict) {
         auto c=config();c.version=1;c.position_basis=padding;
         const auto wire="{"+fields+"}";
         Json j;REQUIRE(j.parse(wire));REQUIRE(parse_config(j,0,c));
-        REQUIRE(c.version==2);REQUIRE(c.position_basis==0);REQUIRE(valid_config(c));
+        REQUIRE(c.version==3);REQUIRE(c.position_basis==0);REQUIRE(valid_config(c));
     }
     auto c=config();Json j;
     auto wire="{"+fields+",\"position_basis\":\"vehicle_report\"}";

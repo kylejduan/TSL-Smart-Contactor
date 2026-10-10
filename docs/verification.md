@@ -31,7 +31,7 @@ OAuth redirect/state validation, recovery and bounded local observation. Browser
 scenarios use synthetic responses and never issue Tesla requests.
 
 On Linux/WSL with GCC or Clang, CTest also compiles the unchanged production
-`main/app.cpp` and board adapter against test-only SDK declarations. Twenty-one
+`main/app.cpp`, decision-storage worker and board adapter against test-only SDK declarations. Thirty-seven
 separate-process scenarios exercise boot/inhibition, startup failures, failed
 queue creation and overflow, GPIO errors, blocked-I/O lease expiry, immediate OFF
 with late requests, control deadline and watchdog-feed failures, and recoverable
@@ -67,8 +67,28 @@ being installed rather than reusing a historical installation hash or size.
 
 ## Verification limits
 
+Outage-policy tests exercise the production `Policy` and entrypoint for retained
+HOME through blocked/missing I/O, freshness expiry and clock discontinuities,
+valid AWAY, local OFF/fault priority, TIMED_ON separation, saved HOME/AWAY restoration,
+commit gating/corruption/power loss and watchdog/panic reset inhibition,
+legacy padding migration and unchanged budget enforcement. Browser/recorder tests
+check explicit opt-in and stale/retained status. These are synthetic tests;
+building a new policy does not install it on a running controller.
+
 Passing host tests or a build does not prove contactor state, receptacle voltage,
 actual charging, startup behavior before firmware runs, real radio/DHCP behavior,
 NVS endurance or recovery from a physical brownout. Keep per-installation results
 locally and complete [bench acceptance](bench_checklist.md). No general physical
 presence guarantee or indefinite unattended-operation guarantee is claimed.
+
+## Hold-last software verification
+
+The hold-last implementation passes all 39 CTest entries with ASan/UBSan: 127
+policy/parser/client/reliability cases, nine bench-protocol cases and 37 production
+control-entrypoint scenarios. The 55 Python tests and 15 synthetic browser
+scenarios pass. The public-tree history guard and JavaScript syntax/diff checks
+pass. The ESP32-S3 target builds with the pinned ESP-IDF v5.5.2; `idf.py size`
+reports 1,034,143 bytes of image content (1,034,256 bytes in the padded binary),
+within the 3 MiB application partition.
+These are software checks, not live outage/power-recovery or electrical tests.
+The policy must be explicitly selected after installing compatible firmware.

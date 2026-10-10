@@ -252,7 +252,7 @@ TEST(version_one_padding_cannot_opt_into_report_policy) {
         p.observe(fix(epoch+31,2),31000,epoch+31,true);REQUIRE(p.tick(31000).commanded);
     }
     auto c=config();c.position_basis=2;REQUIRE(!valid_config(c));
-    c=config();c.version=3;REQUIRE(!valid_config(c));
+    c=config();c.version=4;REQUIRE(!valid_config(c));
 }
 TEST(repeated_week_long_outages_recover_across_32bit_millisecond_boundary) {
     const Ms boot=Ms(std::numeric_limits<uint32_t>::max())-600000;

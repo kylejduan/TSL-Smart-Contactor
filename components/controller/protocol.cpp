@@ -182,8 +182,9 @@ Error parse_tokens(std::string_view body, Tokens& out) {
     out.expires_s=exp; return Error::None;
 }
 bool parse_config(const Json& j, int o, Config& c) {
-    if(c.version!=1 && c.version!=2)return false;
-    c.position_basis=static_cast<uint8_t>(effective_position_basis(c));c.version=2;
+    if(c.version!=1 && c.version!=2 && c.version!=3)return false;
+    c.position_basis=static_cast<uint8_t>(effective_position_basis(c));
+    c.outage_policy=static_cast<uint8_t>(effective_outage_policy(c));c.version=3;
     if(!j.string(j.get(o,"vin"),c.vin,sizeof c.vin) ||
        !j.number(j.get(o,"home_lat"),c.home_lat) || !j.number(j.get(o,"home_lon"),c.home_lon)) return false;
     struct Field { const char* name; uint32_t* value; };
@@ -206,6 +207,12 @@ bool parse_config(const Json& j, int o, Config& c) {
     if(region>=0) {
         if(j.equal(region,"NA"))c.region=0;
         else if(j.equal(region,"EU"))c.region=1;
+        else return false;
+    }
+    int outage=j.get(o,"outage_policy");
+    if(outage>=0) {
+        if(j.equal(outage,"expire"))c.outage_policy=uint8_t(OutagePolicy::Expire);
+        else if(j.equal(outage,"hold_last"))c.outage_policy=uint8_t(OutagePolicy::HoldLast);
         else return false;
     }
     return valid_config(c);
