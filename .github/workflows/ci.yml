@@ -6,7 +6,7 @@ jobs:
   native:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           fetch-depth: 0
       - run: python3 tools/check_public_tree.py --history
@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-24.04
     container: espressif/idf:v5.5.2
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - shell: bash
         run: |
           tools/bootstrap.sh --patch-sdk /opt/esp/idf
@@ -41,7 +41,7 @@ jobs:
       run:
         working-directory: tests/browser
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm test
