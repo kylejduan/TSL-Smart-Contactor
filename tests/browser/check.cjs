@@ -279,6 +279,25 @@ const fs = require('node:fs/promises');
       await waitText('message','signature or image invalid');
       assert.equal((await read()).state.gpio_command,'OFF commanded');
     });
+    await run('firmware confirmation stays bound to the generation it showed', async () => {
+      await reset({commissioned:true,generation:40});
+      await fixture({state:{generation:41},status_delay:1});await page.locator('#refresh').click();
+      await page.locator('#firmware-file').setInputFiles({name:'synthetic.bin',mimeType:'application/octet-stream',buffer:Buffer.alloc(8192)});
+      await page.locator('#firmware-install').click();await page.locator('#confirmation').waitFor({state:'visible'});
+      await page.waitForFunction(() => !document.getElementById('refresh').disabled);await fixture({status_delay:0});
+      await page.locator('#confirm-accept').click();await page.waitForTimeout(500);
+      const f=await read();assert.deepEqual(f.commands.filter(c=>c.action==='begin').map(c=>c.generation),[40]);
+      assert.equal(f.commands.filter(c=>c.action==='finish').length,0);assert.notEqual(f.state.reason,'firmware_update_output_inhibited');
+    });
+    await run('session expiry closes an open, named confirmation', async () => {
+      await reset({commissioned:true,session_left_s:2});
+      await page.locator('#auto').click();await page.locator('#confirmation').waitFor({state:'visible'});
+      assert.match(await page.locator('#confirmation').ariaSnapshot(),/dialog "Select AUTO\?"/);
+      await page.locator('#login').waitFor({state:'visible',timeout:5000});
+      assert.equal(await page.evaluate(() => document.getElementById('confirmation').open),false);
+      assert.equal(await page.evaluate(() => document.activeElement.id),'password');
+      assert.equal((await read()).commands.filter(c=>c.action==='auto').length,0);
+    });
     await run('OFF remains available during an update and supersedes late completion', async () => {
       await reset({});
       await page.route('**/api/firmware/chunk', async route => {await new Promise(resolve=>setTimeout(resolve,600));await route.continue();});

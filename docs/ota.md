@@ -1,6 +1,6 @@
 # Local signed firmware updates
 
-Firmware 0.2.1 provides application-only OTA through the controller's local HTTPS
+Firmware 0.2.1 and later provide application-only OTA through the controller's local HTTPS
 page. There is no update server, background release check, port forwarding, Fleet
 request or new paid service. Each installation owns its signing key. Downloaded
 open-source binaries cannot be installed until reviewed and signed with that key.

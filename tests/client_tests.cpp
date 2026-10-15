@@ -32,14 +32,14 @@ std::string report_location(const std::string& timestamp,double longitude=0) {
 struct IO : FleetIO {
     Ms elapsed=0;uint32_t generation=1;bool time_ready=true;
     int64_t utc_base=epoch;
-    std::deque<Reply> replies;std::vector<Endpoint> requests;std::function<void(Endpoint)> hook;
+    std::deque<Reply> replies;std::vector<Endpoint> requests;std::vector<std::string> forms;std::function<void(Endpoint)> hook;
     Ms now() const override {return elapsed;}
     int64_t utc() const override {return utc_base+elapsed/1000;}
     bool ready() const override {return time_ready;}
     bool current(uint32_t g) const override {return g==generation;}
     void request(Endpoint e,const Config&,const char* access,const char* form,HttpResult& r) override {
         REQUIRE(!replies.empty());auto reply=replies.front();replies.pop_front();REQUIRE(reply.endpoint==e);
-        if(e==Endpoint::Refresh) {REQUIRE(form);REQUIRE(!std::strstr(form,"client_secret"));}
+        if(e==Endpoint::Refresh) {REQUIRE(form);REQUIRE(!std::strstr(form,"client_secret"));forms.push_back(form);}
         else REQUIRE(std::string(access)=="synthetic-access");
         requests.push_back(e);r.status=reply.status;
         std::snprintf(r.transaction_id,sizeof r.transaction_id,"%s",reply.txid);
@@ -66,6 +66,26 @@ TEST(client_401_exactly_one_refresh_and_one_retry) {
     REQUIRE(f.client.poll(config(),1,o)==Error::Authentication);REQUIRE(f.io.requests.size()==4);
     auto d=f.client.diagnostics();REQUIRE(d.attempts_this_boot[0]==2);
     REQUIRE(d.attempts_this_boot[1]==0);REQUIRE(d.attempts_this_boot[2]==2);
+}
+TEST(client_401_recovers_once_and_returns_the_retried_response) {
+    Fixture f;f.io.replies={{Endpoint::Refresh,200,token},{Endpoint::Status,401,"{}"},
+        {Endpoint::Refresh,200,token},{Endpoint::Status,200,asleep}};auto o=fix(epoch);
+    REQUIRE(f.client.poll(config(),1,o)==Error::None);REQUIRE(o.kind==Evidence::Asleep);
+    REQUIRE(f.io.requests.size()==4);REQUIRE(f.client.diagnostics().http_status==200);
+}
+TEST(refresh_form_encodes_fields_in_place_and_accepts_the_largest_token) {
+    StoreFake store;IO io;FleetClient client(store,io,"synthetic client/id");
+    {TokenJournal j(store);REQUIRE(j.provision("synthetic+original=")==Error::None);}
+    REQUIRE(client.initialize()==Error::None);
+    io.replies={{Endpoint::Refresh,200,token}};
+    REQUIRE(client.refresh(config())==Error::None);REQUIRE(io.forms.size()==1);
+    REQUIRE(io.forms[0]=="grant_type=refresh_token&client_id=synthetic%20client%2Fid&refresh_token=synthetic%2Boriginal%3D");
+    StoreFake large_store;IO large_io;FleetClient large(large_store,large_io,"synthetic-client");
+    {TokenJournal j(large_store);REQUIRE(j.provision(std::string(2048,'+').c_str())==Error::None);}
+    REQUIRE(large.initialize()==Error::None);
+    // 2048 reserved characters encode to 6144 bytes: the largest accepted token.
+    large_io.replies={{Endpoint::Refresh,200,token}};
+    REQUIRE(large.refresh(config())==Error::None);REQUIRE(large_io.forms[0].size()==66+6144);
 }
 TEST(client_fetches_location_only_after_online) {
     Fixture f;f.io.replies={{Endpoint::Refresh,200,token},{Endpoint::Status,200,online},{Endpoint::Location,200,location}};

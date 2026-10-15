@@ -31,7 +31,7 @@ OAuth redirect/state validation, recovery and bounded local observation. Browser
 scenarios use synthetic responses and never issue Tesla requests.
 
 On Linux/WSL with GCC or Clang, CTest also compiles the unchanged production
-`main/app.cpp`, decision-storage worker and board adapter against test-only SDK declarations. Thirty-seven
+`main/app.cpp`, decision-storage worker and board adapter against test-only SDK declarations. Forty-one
 separate-process scenarios exercise boot/inhibition, startup failures, failed
 queue creation and overflow, GPIO errors, blocked-I/O lease expiry, immediate OFF
 with late requests, control deadline and watchdog-feed failures, and recoverable
@@ -138,3 +138,24 @@ RSA signing/bundle checks pass with the same pinned SDK. Image content is
 alter GPIO, authentication, configuration, polling or billing limits. Synthetic
 allocation tests cannot measure actual RAM fragmentation or flash timing;
 per-device integration results remain private.
+
+## Token recovery stack and status headroom (0.2.2)
+
+HTTP 401 recovery no longer nests the token refresh under the failed response's
+frame. `FleetClient::fetch` owns one request/response and returns before
+`refresh` runs; both are kept out of line, and the refresh form is URL-encoded in
+place instead of through separate token and client-ID copies. With the pinned
+ESP32-S3 compiler, the worst static Tesla-worker chain fell from 69,456 bytes
+(above the 65,536-byte task stack) to 46,256 bytes, matching the proactive
+refresh path. `tools/check_stack_budget.py` reads `-fstack-usage` output from the
+production build and requires 16 KiB to remain for uninstrumented transport, TLS,
+journal and parser callees; CI runs it after the production build.
+
+`/api/status` also reports lowest and largest internal heap, free PSRAM, and the
+lowest free stack of the Tesla worker and HTTPS server, so the margins can be
+confirmed on a running device. The firmware confirmation now submits the
+generation it displayed, and an ended session closes any open confirmation.
+
+All 57 CTest entries with ASan/UBSan, 71 Python tests and 20 synthetic browser
+scenarios pass. Static frame sums do not measure TLS or SDK callee depth; the
+runtime stack fields are the on-device check.

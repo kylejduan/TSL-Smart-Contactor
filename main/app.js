@@ -120,11 +120,14 @@
     if (n >= 60) return Math.floor(n / 60) + 'm ' + n % 60 + 's';
     return n + 's';
   }
+  function kib(n) { return Number.isFinite(n) ? (n / 1024).toFixed(1) + ' KiB' : 'Unavailable'; }
   function elapsed() { return state ? Math.max(0, (performance.now() - receivedAt) / 1000) : 0; }
   function readable(value) { return String(value ?? 'Unavailable').replaceAll('_', ' '); }
   function clearSession() {
     ++epoch; ++refreshId; csrf = ''; state = null; events = []; dirty = false; pending = false;
     $('controls').hidden = true; $('login').hidden = false; $('password').value = '';
+    // A confirmation belongs to the ended session; never leave it over the login form.
+    if ($('confirmation').open) { $('confirmation').close('cancel'); $('password').focus(); }
     $('connection').textContent = 'Signed out';
     $('settings-form').reset();
     settingsBasisHelp();
@@ -219,7 +222,8 @@
       ['Outage behavior', s.outage_policy === 'hold_last' ? 'Keep last confirmed AUTO decision' : 'Turn OFF at lease expiry'],
       ['Saved AUTO decision', s.outage_policy === 'hold_last' ? (s.auto_state_pending ? 'Storage commit pending' : s.auto_restored ? 'Restored after restart' : 'Up to date') : 'Not restored after restart'],
       ['Last error', s.error === 'none' ? 'None' : reportBased && s.error === 'gps_source_time_unusable' ? 'GPS source time is unusable; the selected mode uses vehicle report time and does not establish GPS acquisition age.' : errors[s.error] || readable(s.error)],
-      ['Control loop maximum gap', s.control_max_gap_ms + ' ms'], ['Free internal memory', Math.round(s.internal_heap_free / 1024) + ' KiB'],
+      ['Control loop maximum gap', s.control_max_gap_ms + ' ms'], ['Free internal memory', kib(s.internal_heap_free) + ' · lowest ' + kib(s.internal_heap_min) + ' · largest block ' + kib(s.internal_heap_largest)],
+      ['Lowest free stack', 'Tesla ' + kib(s.tesla_stack_min_bytes) + ' · HTTPS ' + kib(s.https_stack_min_bytes)],
       ['Local fault', s.fault ? readable(s.fault_source) : 'None'], ['Policy desired ON', s.desired_on ? 'Yes' : 'No'],
       [reportBased ? 'Accepted-report distance' : 'Accepted-fix distance', s.distance_m < 0 ? 'Unavailable' : s.distance_m.toFixed(1) + ' m']
     ]);
@@ -380,7 +384,7 @@
     const keys = ['mode', 'commissioned', 'dry_run', 'position_basis', 'outage_policy', 'auto_retained', 'auto_restored', 'auto_state_pending', 'gpio_command', 'reason', 'auto_home', 'lease_s', 'override_s', 'vehicle',
       'wifi_connected', 'utc_ready', 'uptime_s', 'error', 'reauthorization_needed', 'poll_busy', 'fleet_endpoint', 'fleet_http_status',
       'fleet_detail', 'gps_source_text', 'fleet_txid', 'fleet_date', 'fleet_received_utc_s', 'report_timestamp_text', 'api_version',
-      'attempts_this_boot', 'reserved_today', 'reserved_month', 'location_monthly_cap', 'ready', 'fault', 'fault_source', 'control_max_gap_ms', 'internal_heap_free', 'firmware_version', 'sdk_version'];
+      'attempts_this_boot', 'reserved_today', 'reserved_month', 'location_monthly_cap', 'ready', 'fault', 'fault_source', 'control_max_gap_ms', 'internal_heap_free', 'internal_heap_min', 'internal_heap_largest', 'psram_free', 'tesla_stack_min_bytes', 'https_stack_min_bytes', 'firmware_version', 'sdk_version'];
     const report = { note: 'Redacted controller snapshot; no VIN, coordinates, passwords, tokens, cookies or client ID.', snapshot_age_s: Math.floor(elapsed()), status: {} };
     for (const key of keys) report.status[key] = state[key];
     report.events = events.map(e => ({ uptime_s: e.uptime_s, reason: e.reason, commanded_on: e.commanded_on }));

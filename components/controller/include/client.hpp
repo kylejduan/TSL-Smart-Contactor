@@ -54,6 +54,7 @@ public:
 private:
     Error account(Endpoint,const Config&);
     Error get(Endpoint,const Config&,Observation&);
+    Error fetch(Endpoint,const Config&,Observation&);
     void request(Endpoint,const Config&,const char* access,const char* form,HttpResult&);
     void diagnose(const char* endpoint,const HttpResult&);
     FleetIO& io_;

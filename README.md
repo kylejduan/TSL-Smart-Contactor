@@ -64,7 +64,7 @@ in `tools/requirements.txt`.
 
 `build/tsl_smart_contactor.bin` is the application, not a standalone full-flash
 image. Builds are unsigned; sign the application with your installation key before
-deployment. Firmware 0.2.1 provides local authenticated, signed OTA with two app
+deployment. Firmware 0.2.1 and later provide local authenticated, signed OTA with two app
 slots and startup rollback. Existing factory-layout installations need one
 USB migration; follow [OTA signing, migration and recovery](docs/ota.md). Preserve
 NVS and never use `erase-flash` as an automatic troubleshooting step. Do not flash
@@ -411,9 +411,9 @@ Architecture, exact state behavior and security boundaries are in
 [docs/architecture.md](docs/architecture.md). Tests require neither credentials nor
 paid requests. Hardware/vehicle/electrical validation remains separate.
 
-The 2026-09-23 physical integration check reached the location endpoint with HTTP
-200, but its numeric `gps_as_of` was negative. AUTO correctly remained unauthorized.
-The owner repeated the check after driving; the timestamp remained invalid.
+A physical integration check reached the location endpoint with HTTP 200, but its
+numeric `gps_as_of` was negative. AUTO correctly remained unauthorized. A repeated
+check after the vehicle had moved returned the same invalid timestamp.
 Retain the redacted endpoint/status/detail, `gps_source_text`, `fleet_txid`,
 `fleet_date`, `fleet_received_utc_s`, `report_timestamp_text` and `api_version` for
 Tesla Fleet API support, along with the vehicle software version. These bounded

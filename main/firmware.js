@@ -34,9 +34,11 @@ window.setupFirmware = ui => {
     if (!file || file.size < 8192 || file.size > 0x300000 || file.size % 4096) {
       ui.message('Choose a signed application .bin, up to 3 MiB, with a complete signature sector.', true); return;
     }
-    const at = ui.epoch();
+    // Capture the generation shown when the dialog opens; a refresh while it is
+    // open must make this confirmation stale, as for AUTO and settings.
+    const at = ui.epoch(), generation = ui.state().generation;
     if (!await ui.confirm('Install firmware?', 'This temporarily turns the outlet OFF and restarts the controller. AUTO/settings are preserved; timed ON is canceled by reboot. Use a signed application image made with your installation key. Failed uploads leave the current firmware running. A failed startup rolls back. USB recovery may still be necessary.', 'Install and restart') || at !== ui.epoch()) return;
-    const generation = ui.state().generation, token = ui.start();
+    const token = ui.start();
     uploading = true; buttons(); let id = '', committed = false;
     const deadline = performance.now() + 180000;
     try {

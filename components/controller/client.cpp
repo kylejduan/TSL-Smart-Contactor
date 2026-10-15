@@ -29,7 +29,9 @@ Error FleetClient::account(Endpoint endpoint,const Config& cfg) {
     if(!gmtime_r(&utc,&t))return Error::Clock;
     return budget_.take(endpoint,utc/86400,(t.tm_year+1900)*12+t.tm_mon+1,cfg.daily_cap,cfg.monthly_cap);
 }
-Error FleetClient::refresh(const Config& cfg) {
+// Never inline the large refresh frame into get(): its token and response
+// buffers must not stay reserved while a status/location response is live.
+[[gnu::noinline]] Error FleetClient::refresh(const Config& cfg) {
     // Also called independently between polls. Retry-After belongs to this
     // operation; a previous response must not postpone an unrelated later retry.
     retry_=0;
@@ -37,16 +39,21 @@ Error FleetClient::refresh(const Config& cfg) {
     if(e!=Error::None)return e;
     e=journal_.begin(io_.utc());
     if(e!=Error::None)return e;
-    char token[6145]={},id[385]={},form[6656]={};
-    if(!url_encode(journal_.current(),token,sizeof token) || !url_encode(id_,id,sizeof id)) {
+    // Encode directly into the form; separate encoded copies would add 6.5 KiB
+    // to the Tesla worker stack. Field limits match the former 384/6144 bytes.
+    static constexpr char kClient[]="grant_type=refresh_token&client_id=",kToken[]="&refresh_token=";
+    char form[6656]={};size_t n=sizeof kClient-1;
+    std::memcpy(form,kClient,n);
+    size_t id=url_encode(id_,form+n,385);n+=id;
+    if(id)std::memcpy(form+n,kToken,sizeof kToken),n+=sizeof kToken-1;
+    if(!id || !url_encode(journal_.current(),form+n,std::min<size_t>(6145,sizeof form-n))) {
         auto restored=journal_.cancel_unsent();
-        wipe(token,sizeof token);wipe(form,sizeof form);
+        wipe(form,sizeof form);
         return restored==Error::None ? Error::Malformed : restored;
     }
-    std::snprintf(form,sizeof form,"grant_type=refresh_token&client_id=%s&refresh_token=%s",id,token);
     HttpResult result;request(Endpoint::Refresh,cfg,nullptr,form,result);
     diagnose("refresh",result);
-    retry_=std::max(retry_,result.retry_s);wipe(form,sizeof form);wipe(token,sizeof token);
+    retry_=std::max(retry_,result.retry_s);wipe(form,sizeof form);
     if(!result.request_may_have_been_sent) {
         // DNS/TLS/connect failures cannot rotate a token when no HTTP write was
         // attempted. Preserve any uncertainty that predates this failed attempt.
@@ -76,34 +83,35 @@ Error FleetClient::refresh(const Config& cfg) {
     journal_.release();wipe(&tokens,sizeof tokens);wipe(&result,sizeof result);
     return e;
 }
+// One request and its response frame. HTTP 401 returns Authentication so get()
+// can refresh after this frame is released instead of nesting both on the stack.
+[[gnu::noinline]] Error FleetClient::fetch(Endpoint endpoint,const Config& cfg,Observation& o) {
+    // OFF or a home/VIN change also prevents a queued 401 retry from starting.
+    if(!io_.current(o.generation))return Error::Unavailable;
+    auto e=account(endpoint,cfg);if(e!=Error::None)return e;
+    HttpResult result;request(endpoint,cfg,access_,nullptr,result);
+    // A request can finish after OFF or a VIN/home change. Discard its body,
+    // status and diagnostic fields before they can reach the current view.
+    if(!io_.current(o.generation))return Error::Unavailable;
+    diagnose(endpoint==Endpoint::Location?"location":"status",result);
+    retry_=std::max(retry_,result.retry_s);
+    if(result.error!=Error::None)return result.error;
+    auto parsed=parse_vehicle(result.body.view(),cfg.vin,endpoint==Endpoint::Location,o,
+                         &diagnostic_.detail,&diagnostic_.gps_source_value,
+                         diagnostic_.gps_source_text,sizeof diagnostic_.gps_source_text,&diagnostic_.vehicle_metadata,
+                         effective_position_basis(cfg));
+    if(diagnostic_.vehicle_metadata.coordinates_valid)
+        diagnostic_.reported_distance_m=distance_m(cfg.home_lat,cfg.home_lon,o.lat,o.lon);
+    return parsed;
+}
 Error FleetClient::get(Endpoint endpoint,const Config& cfg,Observation& o) {
-    for(int attempt=0;attempt<2;++attempt) {
-        // OFF or a home/VIN change also prevents a queued 401 retry from starting.
-        if(!io_.current(o.generation))return Error::Unavailable;
-        auto e=account(endpoint,cfg);if(e!=Error::None)return e;
-        HttpResult result;request(endpoint,cfg,access_,nullptr,result);
-        // A request can finish after OFF or a VIN/home change. Discard its body,
-        // status and diagnostic fields before they can reach the current view.
-        if(!io_.current(o.generation))return Error::Unavailable;
-        diagnose(endpoint==Endpoint::Location?"location":"status",result);
-        retry_=std::max(retry_,result.retry_s);
-        if(result.error==Error::Authentication && attempt==0) {
-            if(!io_.current(o.generation))return Error::Unavailable;
-            const auto request_retry=retry_;
-            e=refresh(cfg);retry_=std::max(retry_,request_retry);
-            if(e!=Error::None)return e;
-            continue;
-        }
-        if(result.error!=Error::None)return result.error;
-        auto parsed=parse_vehicle(result.body.view(),cfg.vin,endpoint==Endpoint::Location,o,
-                             &diagnostic_.detail,&diagnostic_.gps_source_value,
-                             diagnostic_.gps_source_text,sizeof diagnostic_.gps_source_text,&diagnostic_.vehicle_metadata,
-                             effective_position_basis(cfg));
-        if(diagnostic_.vehicle_metadata.coordinates_valid)
-            diagnostic_.reported_distance_m=distance_m(cfg.home_lat,cfg.home_lon,o.lat,o.lon);
-        return parsed;
-    }
-    return Error::Authentication;
+    auto e=fetch(endpoint,cfg,o);
+    if(e!=Error::Authentication)return e;
+    if(!io_.current(o.generation))return Error::Unavailable;
+    const auto request_retry=retry_;
+    e=refresh(cfg);retry_=std::max(retry_,request_retry);
+    if(e!=Error::None)return e;
+    return fetch(endpoint,cfg,o);
 }
 Error FleetClient::poll(const Config& cfg,uint32_t generation,Observation& o) {
     retry_=0;

@@ -327,6 +327,7 @@ size_t status_json(char* out,size_t capacity) {
         "\"fleet_endpoint\":\"%s\",\"fleet_http_status\":%d,\"fleet_detail\":\"%s\",\"gps_source_value\":%.17g,\"gps_source_text\":\"%s\",\"fleet_txid\":\"%s\",\"fleet_date\":\"%s\",\"fleet_received_utc_s\":%lld,\"report_timestamp_text\":\"%s\",\"api_version\":%lld,\"reported_distance_m\":%.1f,"
         "\"attempts_this_boot\":[%lu,%lu,%lu],\"reserved_today\":[%lu,%lu,%lu],\"reserved_month\":[%lu,%lu,%lu],\"location_monthly_cap\":%lu,\"estimated_location_usd\":%.3f,"
         "\"ready\":%s,\"fault\":%s,\"fault_source\":\"%s\",\"control_max_gap_ms\":%u,\"internal_heap_free\":%u,"
+        "\"internal_heap_min\":%u,\"internal_heap_largest\":%u,\"psram_free\":%u,\"tesla_stack_min_bytes\":%u,\"https_stack_min_bytes\":%u,"
         "\"firmware_version\":\"%s\",\"sdk_version\":\"%s\",\"session_left_s\":%lld,"
         "\"settings\":{\"vin\":\"%s\",\"home_lat\":%.7f,\"home_lon\":%.7f,\"enable_m\":%lu,\"disable_m\":%lu,"
         "\"max_age_s\":%lu,\"future_s\":%lu,\"lease_s\":%lu,\"sleep_s\":%lu,\"poll_s\":%lu,\"dwell_s\":%lu,"
@@ -348,6 +349,8 @@ size_t status_json(char* out,size_t capacity) {
         (unsigned long)kMonthlyDataRequestCap,s.budget.monthly[1]*kDataRequestUsd,
         s.ready?"true":"false",critical_fault?"true":"false",fault_source.load()?fault_source.load():"none",
         unsigned(control_max_gap_ms.load()),unsigned(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
+        unsigned(heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL)),unsigned(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)),
+        unsigned(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)),unsigned(tesla_stack_min_bytes()),unsigned(uxTaskGetStackHighWaterMark(nullptr)),
         esp_app_get_description()->version,esp_app_get_description()->idf_ver,static_cast<long long>(session.remaining(now_ms())/1000),
         s.config.vin,s.config.home_lat,s.config.home_lon,(unsigned long)s.config.enable_m,(unsigned long)s.config.disable_m,
         (unsigned long)s.config.max_age_s,(unsigned long)s.config.future_s,(unsigned long)s.config.lease_s,(unsigned long)s.config.sleep_s,

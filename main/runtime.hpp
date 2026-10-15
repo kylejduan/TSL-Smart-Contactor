@@ -56,6 +56,7 @@ bool submit(const Observation&);
 void network_status(uint32_t generation,Vehicle,Error,Ms last,Ms next,const BudgetRecord&,bool paused,FleetDiagnostics);
 void start_wifi(const Profile&);
 void start_tesla(const Profile&);
+uint32_t tesla_stack_min_bytes();
 bool start_management(Profile&);
 void usb_task(void*);
 size_t status_json(char* out,size_t capacity);

@@ -72,8 +72,14 @@ void worker(void* context) {
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
+std::atomic<TaskHandle_t> tesla_task{nullptr};
 }
 void start_tesla(const Profile& p) {
-    if(xTaskCreate(worker,"tesla_worker",65536,const_cast<Profile*>(&p),3,nullptr)!=pdPASS)fail("tesla_task");
+    TaskHandle_t task=nullptr;
+    if(xTaskCreate(worker,"tesla_worker",65536,const_cast<Profile*>(&p),3,&task)!=pdPASS)fail("tesla_task");
+    tesla_task.store(task);
+}
+uint32_t tesla_stack_min_bytes() {
+    auto task=tesla_task.load();return task ? uxTaskGetStackHighWaterMark(task) : 0;
 }
 }

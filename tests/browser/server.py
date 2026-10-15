@@ -29,6 +29,7 @@ BASE = dict(outage_policy='expire', auto_retained=False, auto_restored=False, au
     reserved_today=[4,4,4], reserved_month=[8,8,8], location_monthly_cap=5000,
     estimated_location_usd=.016, ready=True,
     fault=False, fault_source='none', control_max_gap_ms=53, internal_heap_free=79000,
+    internal_heap_min=61000, internal_heap_largest=45056, psram_free=7340032, tesla_stack_min_bytes=18432, https_stack_min_bytes=9216,
     firmware_version='synthetic-test', sdk_version='v5.5.2', session_left_s=900, settings=SETTINGS)
 HISTORY = [dict(uptime_s=500, reason='uncommissioned', commanded_on=False)]
 SALT = bytes.fromhex('00112233445566778899aabbccddeeff')

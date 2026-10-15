@@ -40,7 +40,8 @@ ENUMS = {"mode": {"AUTO", "DISABLED", "TIMED_ON"}, "gpio_command": {"ON commande
 BOOLEANS = set("desired_on ready commissioned dry_run fault auto_home auto_retained auto_restored auto_state_pending wifi_connected utc_ready "
                "reauthorization_needed poll_busy".split())
 INTEGERS = set("generation uptime_s lease_s override_s location_age_s next_poll_s last_success_uptime_s "
-               "rssi_dbm control_max_gap_ms internal_heap_free fleet_http_status "
+               "rssi_dbm control_max_gap_ms internal_heap_free internal_heap_min internal_heap_largest psram_free "
+               "tesla_stack_min_bytes https_stack_min_bytes fleet_http_status "
                "fleet_received_utc_s location_monthly_cap".split())
 NUMBERS = {"distance_m", "reported_distance_m", "estimated_location_usd"}
 COUNTS = {"attempts_this_boot", "reserved_today", "reserved_month"}
