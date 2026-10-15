@@ -24,7 +24,8 @@ Use a unique high-entropy 16–128-byte administrator password. Plain NVS and
 unencrypted flash do not prevent physical credential extraction. Login latency
 is browser/device/network dependent; software does not promise a universal bound.
 
-USB Wi-Fi recovery preserves the token and TLS keys, requires an authenticated
-local action while uncommissioned, DISABLED and dry-run, and checks NVS commits.
+USB Wi-Fi recovery preserves the token, TLS keys, commissioning and dry-run
+settings. It requires an authenticated local action with DISABLED already saved,
+and checks NVS commits.
 Live measurements belong in private installation records. Offline UI checks do
 not replace relay, outbound TLS, Wi-Fi outage or physical provisioning acceptance.

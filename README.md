@@ -73,9 +73,11 @@ an unsigned image if you expect OTA availability.
 ## Windows laptop
 
 Install [Espressif's ESP-IDF v5.5.2 Windows tools](https://docs.espressif.com/projects/esp-idf/en/v5.5.2/esp32s3/get-started/windows-setup.html)
-and run `python -m pip install -r tools/requirements-sdk.txt`,
-`idf.py set-target esp32s3`, `idf.py build` from its command prompt in this
-repository. Do not use Arduino or PlatformIO settings. In PowerShell with Python
+and, from its command prompt in this repository, apply the pinned HTTPS cleanup
+fix once with `git -C "%IDF_PATH%" apply "%CD%\tools\patches\esp-idf-v5.5.2-https-oom.patch"`
+(the build refuses an unpatched SDK). Then run
+`python -m pip install -r tools/requirements-sdk.txt`, `idf.py set-target esp32s3`
+and `idf.py build`. Do not use Arduino or PlatformIO settings. In PowerShell with Python
 3.12 installed:
 
 ```powershell
