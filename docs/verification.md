@@ -183,3 +183,33 @@ scenarios pass, alongside the pinned ESP32-S3 build, stack-budget and real signi
 checks. These tests establish recovery behavior under injected failures; a
 successful restart alone does not establish a previous timeout's DNS, station,
 TLS, network-path or service cause. Preserve the failure-phase evidence first.
+
+### Prolonged outage recovery
+
+The unchanged production Fleet worker also runs against synthetic storage,
+transport and time for prolonged outage tests. They cover a 48-hour connection
+outage followed by a resolver that stays stale until station recovery, 48 hours
+without usable UTC followed by synchronization, eight hours of HTTP 503 or
+certificate errors followed by restoration, and a two-hour Retry-After embargo.
+Each recoverable case resumes token refresh and three ordinary HOME polls without
+reboot, manual polling or a policy override. Recovery never authorizes HOME by
+itself, and request reservations remain within the configured caps.
+
+At maximum backoff, a returning service may take roughly one hour to be polled,
+unless a longer Retry-After embargo applies.
+If local connection state also requires station recovery, three qualifying
+failures plus the subsequent retry can take roughly four hours. The one-hour
+recovery limit is a maximum frequency, not a one-hour restoration guarantee.
+These are synthetic scheduler bounds, not Internet or radio availability SLAs.
+
+An additional 36-hour ambiguous-refresh outage verifies the existing fail-stop:
+when a refresh may have reached the server but no replacement token was committed,
+the journal stops recovery after 24 hours or 32 attempts and requires new consent.
+Proven-unsent failures restore their own intent; they cannot clear uncertainty
+from an earlier potentially sent request. Do not bypass this bound, clear the
+journal or restore an old token chain to force recovery.
+
+All 89 native CTest entries pass with ASan/UBSan. These tests do not cut a live
+installation's network, exercise the physical radio, or establish the cause of a
+historical cloud outage. A wider provider incident requires matching service,
+dependency, timing and controller-side failure evidence before attribution.
