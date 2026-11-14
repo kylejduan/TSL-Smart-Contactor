@@ -4,6 +4,17 @@
 #include <cstring>
 #include <ctime>
 namespace tsl {
+bool TransportRecovery::observe(Error error,const TransportDiagnostics& d,Ms now) {
+    const bool eligible=(error==Error::Timeout || error==Error::Transport) &&
+        !d.request_may_have_been_sent && !std::strcmp(d.phase,"connect") &&
+        !d.mbedtls_error && !d.verify_flags;
+    if(!eligible || now<0) {failures_=0;return false;}
+    failures_=std::min<uint32_t>(3,failures_+1);
+    if(failures_<3 || now<next_allowed_)return false;
+    failures_=0;next_allowed_=now+3600000;
+    if(attempts_!=UINT32_MAX)++attempts_;
+    return true;
+}
 void wipe(void* p,size_t n) {
     auto* bytes=static_cast<volatile unsigned char*>(p);
     while(n--)*bytes++=0;
@@ -13,10 +24,17 @@ Error FleetClient::initialize() {
     return budget_.load()!=Error::None ? Error::Storage : e;
 }
 void FleetClient::diagnose(const char* endpoint,const HttpResult& result) {
+    const auto previous_failure=diagnostic_.last_failure;
     diagnostic_={endpoint,error_name(result.error),result.status};
+    diagnostic_.last_failure=previous_failure;
     std::memcpy(diagnostic_.transaction_id,result.transaction_id,sizeof diagnostic_.transaction_id);
     std::memcpy(diagnostic_.response_date,result.response_date,sizeof diagnostic_.response_date);
     diagnostic_.received_utc_s=result.received_utc_s;
+    diagnostic_.transport=result.transport;
+    diagnostic_.transport.request_may_have_been_sent=result.request_may_have_been_sent;
+    if(result.error!=Error::None) {
+        diagnostic_.last_failure={diagnostic_.transport,endpoint,error_name(result.error),result.status,result.received_utc_s};
+    }
 }
 void FleetClient::request(Endpoint endpoint,const Config& cfg,const char* access,const char* form,HttpResult& result) {
     auto& count=attempts_[static_cast<size_t>(endpoint)];

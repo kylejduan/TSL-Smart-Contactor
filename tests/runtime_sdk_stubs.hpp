@@ -11,6 +11,7 @@ using UBaseType_t = unsigned;
 using TickType_t = std::uint32_t;
 using TaskHandle_t = void*;
 using TaskFunction_t = void (*)(void*);
+UBaseType_t uxTaskGetStackHighWaterMark(TaskHandle_t);
 using SemaphoreHandle_t = void*;
 struct StaticSemaphore_t { int unused; };
 struct StaticQueue_t { int unused; };

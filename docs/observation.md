@@ -14,6 +14,14 @@ The dashboard and authenticated `/api/status` show:
   maximum control scheduling gap, free internal heap and build versions.
 - Per-boot attempts, conservative persistent daily/monthly reservations and the
   local monthly Data cap. Reservations are estimates, not Tesla account charges.
+- The latest transport phase, connection/total duration, bytes transferred,
+  SDK/mbedTLS/system error codes, verification flags and whether an HTTP write
+  might have happened. These distinguish an unsent connection failure from an
+  ambiguous token response without revealing request contents.
+- Bounded network-recovery attempts and their last SDK result. The last failed
+  transport's fixed labels and numeric context survive later successful requests
+  and local mode changes within the current boot. This RAM-only record resets on
+  reboot; keep a private capture before restarting an installation.
 
 Authenticated `/api/events` contains the latest 16 decision changes with uptime,
 reason and ON/OFF command. It is RAM-only and resets on reboot. If more than 16

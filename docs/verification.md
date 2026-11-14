@@ -159,3 +159,27 @@ generation it displayed, and an ended session closes any open confirmation.
 All 57 CTest entries with ASan/UBSan, 71 Python tests and 20 synthetic browser
 scenarios pass. Static frame sums do not measure TLS or SDK callee depth; the
 runtime stack fields are the on-device check.
+
+## Transport diagnostics and bounded station recovery (0.2.3)
+
+The production ESP-TLS request adapter is compiled unchanged into native tests
+with synthetic SDK I/O. Scenarios distinguish DNS/connect and TLS timeouts,
+certificate rejection, header/body write stalls, no response, partial responses
+and socket errors, including uptime beyond signed 32-bit milliseconds. Diagnostic
+fields contain fixed labels and numeric progress, never HTTP bodies or secrets.
+The last transport failure remains available after later successful requests
+within that boot; reboot clears this RAM-only context.
+
+After three consecutive proven-unsent connection failures, recovery can clear
+cached DNS on the TCP/IP thread and rejoin the saved Wi-Fi profile. Production
+worker tests verify that the action is inhibited during OFF and OTA, preserves
+tokens and request reservations, and does not issue output commands. Recovery is
+limited to one attempt per hour; server responses, certificate errors and
+ambiguous token exchanges do not trigger it. Backoff, spending limits, the token
+journal and presence policy remain in force.
+
+All 83 CTest entries with ASan/UBSan, 72 Python tests and 20 synthetic browser
+scenarios pass, alongside the pinned ESP32-S3 build, stack-budget and real signing
+checks. These tests establish recovery behavior under injected failures; a
+successful restart alone does not establish a previous timeout's DNS, station,
+TLS, network-path or service cause. Preserve the failure-phase evidence first.

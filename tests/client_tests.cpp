@@ -19,7 +19,7 @@ struct StoreFake : Store {
 };
 struct Reply {Endpoint endpoint;int status;std::string body;Error transport_error=Error::None;
     const char* txid="";const char* date="";int64_t received=0;bool request_may_have_been_sent=true;
-    uint32_t retry_s=0;};
+    uint32_t retry_s=0;TransportDiagnostics transport{};};
 const std::string token="{\"access_token\":\"synthetic-access\",\"refresh_token\":\"synthetic-next\",\"token_type\":\"Bearer\",\"expires_in\":1000}";
 const std::string asleep="{\"response\":{\"vin\":\"5YJ3E1EA7KF000001\",\"state\":\"asleep\"}}";
 const std::string online="{\"response\":{\"vin\":\"5YJ3E1EA7KF000001\",\"state\":\"online\"}}";
@@ -47,6 +47,7 @@ struct IO : FleetIO {
         r.error=reply.transport_error==Error::None ? http_error(reply.status) : reply.transport_error;
         r.retry_s=reply.retry_s;
         r.request_may_have_been_sent=reply.request_may_have_been_sent;
+        r.transport=reply.transport;
         r.body.append(reply.body.data(),reply.body.size());
         if(hook)hook(e);
     }
@@ -59,6 +60,55 @@ struct Fixture {
 TEST(client_checks_status_and_never_fetches_sleeping_location) {
     Fixture f;f.io.replies={{Endpoint::Refresh,200,token},{Endpoint::Status,200,asleep}};auto o=fix(epoch);
     REQUIRE(f.client.poll(config(),1,o)==Error::None);REQUIRE(o.kind==Evidence::Asleep);REQUIRE(f.io.requests.size()==2);
+}
+TEST(client_exposes_fixed_transport_progress_and_clears_old_failure_on_success) {
+    Fixture f;
+    Reply failed{Endpoint::Refresh,0,"",Error::Timeout};
+    failed.request_may_have_been_sent=false;
+    failed.transport.phase="connect";failed.transport.elapsed_ms=10000;
+    failed.transport.connect_state=2;failed.transport.mbedtls_error=-0x2700;
+    f.io.replies={failed};
+    REQUIRE(f.client.refresh(config())==Error::Timeout);
+    auto d=f.client.diagnostics();
+    REQUIRE(std::string(d.transport.phase)=="connect");
+    REQUIRE(d.transport.elapsed_ms==10000 && d.transport.mbedtls_error==-0x2700);
+    REQUIRE(!d.transport.request_may_have_been_sent && d.attempts_this_boot[2]==1);
+    Reply recovered{Endpoint::Refresh,200,token};recovered.transport.phase="complete";
+    f.io.replies={recovered};REQUIRE(f.client.refresh(config())==Error::None);
+    d=f.client.diagnostics();REQUIRE(std::string(d.transport.phase)=="complete");
+    REQUIRE(d.transport.mbedtls_error==0 && d.transport.request_may_have_been_sent);
+    REQUIRE(std::string(d.last_failure.transport.phase)=="connect" && d.last_failure.transport.elapsed_ms==10000);
+    REQUIRE(std::string(d.last_failure.error)=="timeout" && !d.last_failure.transport.request_may_have_been_sent);
+    f.client.clear_diagnostics();REQUIRE(std::string(f.client.diagnostics().transport.phase)=="none");
+    REQUIRE(std::string(f.client.diagnostics().last_failure.error)=="timeout");
+}
+TEST(unsent_connection_recovery_requires_three_failures_and_is_limited_to_hourly) {
+    TransportRecovery recovery;TransportDiagnostics d;
+    d.phase="connect";const Ms boot=Ms(30)*86400000;
+    REQUIRE(!recovery.observe(Error::Timeout,d,boot));
+    REQUIRE(!recovery.observe(Error::Timeout,d,boot+60000));
+    REQUIRE(recovery.observe(Error::Timeout,d,boot+180000));
+    REQUIRE(recovery.attempts()==1 && recovery.failures()==0);
+    for(int i=0;i<8;++i)REQUIRE(!recovery.observe(Error::Timeout,d,boot+180001+i*1000));
+    REQUIRE(recovery.observe(Error::Transport,d,boot+180000+3600000));
+    REQUIRE(recovery.attempts()==2);
+    REQUIRE(!recovery.observe(Error::None,d,boot+4000000));
+    REQUIRE(recovery.failures()==0);
+}
+TEST(network_recovery_never_replays_ambiguous_tokens_or_reacts_to_server_or_certificate_errors) {
+    for(auto error:{Error::Timeout,Error::Transport,Error::Authentication,Error::Permission,Error::Server,Error::RateLimit,Error::Budget}) {
+        TransportRecovery recovery;TransportDiagnostics d;d.phase="read_response";d.request_may_have_been_sent=true;
+        for(int i=0;i<8;++i)REQUIRE(!recovery.observe(error,d,i*3600000LL));
+        REQUIRE(recovery.attempts()==0);
+    }
+    for(auto error:{Error::Authentication,Error::Permission,Error::Server,Error::RateLimit,Error::Budget,Error::Wifi,Error::Clock}) {
+        TransportRecovery recovery;TransportDiagnostics d;d.phase="connect";
+        for(int i=0;i<8;++i)REQUIRE(!recovery.observe(error,d,i*3600000LL));
+        REQUIRE(recovery.attempts()==0);
+    }
+    TransportRecovery cert;TransportDiagnostics d;d.phase="connect";d.mbedtls_error=-0x2700;d.verify_flags=8;
+    for(int i=0;i<8;++i)REQUIRE(!cert.observe(Error::Transport,d,i*3600000LL));
+    REQUIRE(cert.attempts()==0);
 }
 TEST(client_401_exactly_one_refresh_and_one_retry) {
     Fixture f;f.io.replies={{Endpoint::Refresh,200,token},{Endpoint::Status,401,"{}"},

@@ -3,14 +3,9 @@
 #include "esp_netif.h"
 #include "esp_event.h"
 #include "esp_netif_sntp.h"
-#include "esp_crt_bundle.h"
-#include "esp_tls.h"
-#include "http_decoder.hpp"
 #include "mbedtls/platform_util.h"
 #include <algorithm>
 #include <cstring>
-#include <cstdio>
-#include <ctime>
 namespace app {
 static_assert(CONFIG_LWIP_DNS_MAX_SERVERS>=2,
     "IDF reserves the last DNS slot; DHCP needs a separate usable slot");
@@ -73,86 +68,5 @@ void start_wifi(const Profile& p) {
        esp_wifi_start()!=ESP_OK)fail("network_init_or_allocation");
     mbedtls_platform_zeroize(&cfg,sizeof cfg);
     if(xTaskCreate(reconnect_task,"wifi_retry",3072,nullptr,2,nullptr)!=pdPASS)fail("network_init_or_allocation");
-}
-void request(Endpoint endpoint,const Config& cfg,const char* access,const char* form,HttpResult& r) {
-    r.request_may_have_been_sent=false;
-    if(!snapshot().utc_ok) {r.error=Error::Clock;return;}
-    if(!wifi_connected) {r.error=Error::Wifi;return;}
-    const char* host=endpoint==Endpoint::Refresh ? "fleet-auth.prd.vn.cloud.tesla.com" :
-        (cfg.region ? "fleet-api.prd.eu.vn.cloud.tesla.com" : "fleet-api.prd.na.vn.cloud.tesla.com");
-    char path[128]={},header[4608]={};
-    bool post=endpoint==Endpoint::Refresh;
-    if(post)std::strcpy(path,"/oauth2/v3/token");
-    else std::snprintf(path,sizeof path,"/api/1/vehicles/%s%s",cfg.vin,
-        endpoint==Endpoint::Location ? "/vehicle_data?endpoints=location_data" : "");
-    int n=post ? std::snprintf(header,sizeof header,
-        "POST %s HTTP/1.1\r\nHost: %s\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: %u\r\nConnection: close\r\nAccept-Encoding: identity\r\n\r\n",
-        path,host,unsigned(std::strlen(form))) : std::snprintf(header,sizeof header,
-        "GET %s HTTP/1.1\r\nHost: %s\r\nAuthorization: Bearer %s\r\nConnection: close\r\nAccept-Encoding: identity\r\n\r\n",path,host,access);
-    if(n<=0 || size_t(n)>=sizeof header) {
-        mbedtls_platform_zeroize(header,sizeof header);
-        r.error=Error::Malformed;return;
-    }
-    esp_tls_cfg_t config={};config.crt_bundle_attach=esp_crt_bundle_attach;
-    config.non_block=true;config.timeout_ms=10000;
-    auto* tls=esp_tls_init();
-    if(!tls) {
-        mbedtls_platform_zeroize(header,sizeof header);
-        r.error=Error::Transport;return;
-    }
-    const Ms deadline=now_ms()+20000,connect_deadline=now_ms()+10000;
-    int connected=0;
-    do {
-        connected=esp_tls_conn_new_async(host,std::strlen(host),443,&config,tls);
-        if(connected!=0)break;
-        vTaskDelay(pdMS_TO_TICKS(20));
-    } while(now_ms()<connect_deadline);
-    // The SDK's first async call still performs synchronous DNS resolution and
-    // a bounded socket select. Reject late completion before sending HTTP data.
-    if(now_ms()>=connect_deadline)r.error=Error::Timeout;
-    else if(connected!=1)r.error=connected<0 ? Error::Transport : Error::Timeout;
-    auto write=[&](const char* p,size_t length) {
-        size_t sent=0;Ms progress=now_ms();
-        while(sent<length) {
-            if(now_ms()>=deadline || now_ms()-progress>=5000) {r.error=Error::Timeout;return false;}
-            // Set before the call: even a failed/partial write remains ambiguous.
-            r.request_may_have_been_sent=true;
-            int result=esp_tls_conn_write(tls,p+sent,length-sent);
-            if(result>0) {sent+=result;progress=now_ms();}
-            else if(result!=ESP_TLS_ERR_SSL_WANT_READ && result!=ESP_TLS_ERR_SSL_WANT_WRITE) {
-                r.error=Error::Transport;return false;
-            }
-            vTaskDelay(pdMS_TO_TICKS(10));
-        }
-        return true;
-    };
-    HttpDecoder decoder(r.body);
-    if(r.error==Error::None && write(header,n) && (!post || write(form,std::strlen(form)))) {
-        char data[1024];Ms progress=now_ms();
-        while(!decoder.done()) {
-            if(now_ms()>=deadline || now_ms()-progress>=5000) {r.error=Error::Timeout;break;}
-            int got=esp_tls_conn_read(tls,data,sizeof data);
-            if(got>0) {
-                progress=now_ms();
-                if(!decoder.feed(data,got)) {r.error=decoder.error();break;}
-            } else if(got==0) {if(!decoder.eof())r.error=decoder.error();break;}
-            else if(got!=ESP_TLS_ERR_SSL_WANT_READ && got!=ESP_TLS_ERR_SSL_WANT_WRITE) {
-                r.error=Error::Transport;break;
-            }
-            vTaskDelay(pdMS_TO_TICKS(10));
-        }
-        mbedtls_platform_zeroize(data,sizeof data);
-    }
-    r.status=decoder.status();
-    r.received_utc_s=time(nullptr);
-    std::strcpy(r.transaction_id,decoder.transaction_id());
-    std::strcpy(r.response_date,decoder.response_date());
-    if(r.error==Error::None) {
-        if(!decoder.done())r.error=Error::Malformed;
-        else r.error=http_error(r.status);
-    }
-    r.retry_s=retry_after_seconds(decoder.retry_after(),time(nullptr));
-    esp_tls_conn_destroy(tls);
-    mbedtls_platform_zeroize(header,sizeof header);
 }
 }

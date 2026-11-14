@@ -325,6 +325,9 @@ size_t status_json(char* out,size_t capacity) {
         "\"wifi_connected\":%s,\"rssi_dbm\":%d,\"uptime_s\":%lld,\"utc_ready\":%s,"
         "\"error\":\"%s\",\"reauthorization_needed\":%s,\"poll_busy\":%s,"
         "\"fleet_endpoint\":\"%s\",\"fleet_http_status\":%d,\"fleet_detail\":\"%s\",\"gps_source_value\":%.17g,\"gps_source_text\":\"%s\",\"fleet_txid\":\"%s\",\"fleet_date\":\"%s\",\"fleet_received_utc_s\":%lld,\"report_timestamp_text\":\"%s\",\"api_version\":%lld,\"reported_distance_m\":%.1f,"
+        "\"fleet_phase\":\"%s\",\"fleet_elapsed_ms\":%lu,\"fleet_connect_ms\":%lu,\"fleet_connect_state\":%d,\"fleet_bytes_written\":%lu,\"fleet_bytes_read\":%lu,\"fleet_last_io\":%d,\"fleet_tls_error\":%d,\"fleet_mbedtls_error\":%d,\"fleet_verify_flags\":%d,\"fleet_system_error\":%d,\"fleet_request_may_have_been_sent\":%s,"
+        "\"network_recoveries\":%lu,\"last_network_recovery_uptime_s\":%lu,\"network_recovery_error\":%d,"
+        "\"last_failure_endpoint\":\"%s\",\"last_failure_error\":\"%s\",\"last_failure_phase\":\"%s\",\"last_failure_elapsed_ms\":%lu,\"last_failure_connect_state\":%d,\"last_failure_tls_error\":%d,\"last_failure_mbedtls_error\":%d,\"last_failure_verify_flags\":%d,\"last_failure_system_error\":%d,\"last_failure_http_status\":%d,\"last_failure_utc_s\":%lld,\"last_failure_bytes_written\":%lu,\"last_failure_bytes_read\":%lu,\"last_failure_request_may_have_been_sent\":%s,"
         "\"attempts_this_boot\":[%lu,%lu,%lu],\"reserved_today\":[%lu,%lu,%lu],\"reserved_month\":[%lu,%lu,%lu],\"location_monthly_cap\":%lu,\"estimated_location_usd\":%.3f,"
         "\"ready\":%s,\"fault\":%s,\"fault_source\":\"%s\",\"control_max_gap_ms\":%u,\"internal_heap_free\":%u,"
         "\"internal_heap_min\":%u,\"internal_heap_largest\":%u,\"psram_free\":%u,\"tesla_stack_min_bytes\":%u,\"https_stack_min_bytes\":%u,"
@@ -343,6 +346,18 @@ size_t status_json(char* out,size_t capacity) {
         s.fleet.endpoint,s.fleet.http_status,s.fleet.detail,s.fleet.gps_source_value,s.fleet.gps_source_text,
         s.fleet.transaction_id,s.fleet.response_date,static_cast<long long>(s.fleet.received_utc_s),
         s.fleet.vehicle_metadata.report_timestamp_text,static_cast<long long>(s.fleet.vehicle_metadata.api_version),s.fleet.reported_distance_m,
+        s.fleet.transport.phase,(unsigned long)s.fleet.transport.elapsed_ms,(unsigned long)s.fleet.transport.connect_ms,
+        s.fleet.transport.connect_state,(unsigned long)s.fleet.transport.bytes_written,(unsigned long)s.fleet.transport.bytes_read,
+        s.fleet.transport.last_io,s.fleet.transport.tls_error,s.fleet.transport.mbedtls_error,s.fleet.transport.verify_flags,
+        s.fleet.transport.system_error,s.fleet.transport.request_may_have_been_sent?"true":"false",
+        (unsigned long)s.fleet.network_recoveries,(unsigned long)s.fleet.last_network_recovery_uptime_s,s.fleet.network_recovery_error,
+        s.fleet.last_failure.endpoint,s.fleet.last_failure.error,s.fleet.last_failure.transport.phase,
+        (unsigned long)s.fleet.last_failure.transport.elapsed_ms,s.fleet.last_failure.transport.connect_state,
+        s.fleet.last_failure.transport.tls_error,s.fleet.last_failure.transport.mbedtls_error,
+        s.fleet.last_failure.transport.verify_flags,s.fleet.last_failure.transport.system_error,
+        s.fleet.last_failure.http_status,static_cast<long long>(s.fleet.last_failure.received_utc_s),
+        (unsigned long)s.fleet.last_failure.transport.bytes_written,(unsigned long)s.fleet.last_failure.transport.bytes_read,
+        s.fleet.last_failure.transport.request_may_have_been_sent?"true":"false",
         (unsigned long)s.fleet.attempts_this_boot[0],(unsigned long)s.fleet.attempts_this_boot[1],(unsigned long)s.fleet.attempts_this_boot[2],
         (unsigned long)s.budget.daily[0],(unsigned long)s.budget.daily[1],(unsigned long)s.budget.daily[2],
         (unsigned long)s.budget.monthly[0],(unsigned long)s.budget.monthly[1],(unsigned long)s.budget.monthly[2],

@@ -40,6 +40,24 @@ class Reply:
 
 
 class ObserverTests(unittest.TestCase):
+    def test_transport_failures_retain_stage_without_retaining_credentials(self):
+        safe=observer.safe_status(dict(status(),fleet_phase="read_response",fleet_elapsed_ms=5040,
+            fleet_connect_ms=40,fleet_connect_state=4,fleet_bytes_written=2500,fleet_bytes_read=0,
+            fleet_last_io=-26880,fleet_tls_error=0,fleet_mbedtls_error=0,fleet_verify_flags=0,
+            fleet_system_error=0,fleet_request_may_have_been_sent=True,
+            network_recoveries=1,last_network_recovery_uptime_s=3600,network_recovery_error=0,
+            last_failure_endpoint="refresh",last_failure_phase="connect",last_failure_error="timeout",
+            last_failure_elapsed_ms=10000,last_failure_request_may_have_been_sent=False,
+            raw_request="synthetic-secret",refresh_token="synthetic-secret"))
+        self.assertEqual(safe["fleet_phase"],"read_response")
+        self.assertEqual(safe["fleet_last_io"],-26880)
+        self.assertTrue(safe["fleet_request_may_have_been_sent"])
+        self.assertEqual(safe["network_recoveries"],1)
+        self.assertEqual(safe["last_failure_phase"],"connect")
+        self.assertNotIn("synthetic-secret",json.dumps(safe))
+        with self.assertRaises(observer.ObserverError):
+            observer.safe_status(dict(status(),fleet_phase="synthetic-secret"))
+
     def test_ota_inhibition_keeps_home_evidence_and_redacts_status_and_events(self):
         document = dict(status(), gpio_command="OFF commanded",
                         reason="firmware_update_output_inhibited")

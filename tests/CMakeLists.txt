@@ -12,6 +12,33 @@ if(SANITIZE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_link_options(controller PUBLIC -fsanitize=address,undefined)
 endif()
 enable_testing()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    foreach(header esp_tls.h esp_crt_bundle.h mbedtls/platform_util.h esp_wifi.h lwip/dns.h lwip/tcpip.h)
+        file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/transport-sdk/${header}"
+            CONTENT "#include \"transport_sdk_stubs.hpp\"\n")
+    endforeach()
+    add_executable(transport_runtime_tests transport_runtime_tests.cpp ../main/fleet_transport.cpp ../main/network_recovery.cpp)
+    target_include_directories(transport_runtime_tests PRIVATE . ../main "${CMAKE_CURRENT_BINARY_DIR}/transport-sdk" "${CMAKE_CURRENT_BINARY_DIR}/runtime-sdk")
+    target_link_libraries(transport_runtime_tests PRIVATE controller)
+    target_compile_options(transport_runtime_tests PRIVATE -Wall -Wextra -Werror -Wpedantic)
+    foreach(scenario success clock wifi allocation_failure dns_timeout tls_timeout connect_error certificate_failure
+            headers_timeout body_timeout read_timeout partial_response read_error
+            recovery_success recovery_queue_failure recovery_disconnect_failure recovery_provisioning recovery_ota recovery_fault recovery_disconnected)
+        add_test(NAME transport_${scenario} COMMAND transport_runtime_tests ${scenario})
+    endforeach()
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    add_executable(tesla_worker_tests tesla_worker_tests.cpp ../main/tesla.cpp)
+    target_include_directories(tesla_worker_tests PRIVATE . ../main "${CMAKE_CURRENT_BINARY_DIR}/runtime-sdk")
+    target_link_libraries(tesla_worker_tests PRIVATE controller)
+    target_compile_options(tesla_worker_tests PRIVATE -Wall -Wextra -Werror -Wpedantic)
+    target_link_options(tesla_worker_tests PRIVATE -Wl,--wrap=time)
+    foreach(scenario unsent ambiguous certificate server off ota)
+        add_test(NAME worker_${scenario} COMMAND tesla_worker_tests ${scenario})
+    endforeach()
+endif()
 add_executable(controller_tests test_main.cpp firmware_update_tests.cpp policy_tests.cpp outage_policy_tests.cpp auto_journal_tests.cpp protocol_tests.cpp reliability_tests.cpp client_tests.cpp control_tests.cpp autonomy_tests.cpp)
 target_link_libraries(controller_tests PRIVATE controller)
 target_compile_options(controller_tests PRIVATE -Wall -Wextra -Werror -Wpedantic)
@@ -31,7 +58,7 @@ add_test(NAME bench_relay_tests COMMAND bench_relay_tests)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     set(runtime_sdk_headers
         freertos/FreeRTOS.h freertos/semphr.h freertos/queue.h driver/gpio.h nvs.h
-        esp_timer.h esp_task_wdt.h esp_heap_caps.h esp_psram.h esp_system.h esp_random.h)
+        esp_timer.h esp_task_wdt.h esp_heap_caps.h esp_psram.h esp_system.h esp_random.h esp_err.h)
     foreach(header IN LISTS runtime_sdk_headers)
         file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/runtime-sdk/${header}"
             CONTENT "#include \"runtime_sdk_stubs.hpp\"\n")

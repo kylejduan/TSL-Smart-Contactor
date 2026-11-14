@@ -37,12 +37,19 @@ ENUMS = {"mode": {"AUTO", "DISABLED", "TIMED_ON"}, "gpio_command": {"ON commande
          "reason": REASONS, "vehicle": {"online", "asleep", "offline", "unknown"},
          "position_basis": {"gps_source", "vehicle_report"}, "outage_policy": {"expire", "hold_last"}, "error": ERRORS,
          "fleet_endpoint": {"none", "status", "location", "refresh", ""}}
+ENUMS["fleet_phase"] = {"none", "clock", "wifi", "headers", "allocate", "connect", "write_headers", "write_body", "read_response", "complete"}
+ENUMS.update(last_failure_endpoint=ENUMS["fleet_endpoint"],last_failure_error=ERRORS,last_failure_phase=ENUMS["fleet_phase"])
 BOOLEANS = set("desired_on ready commissioned dry_run fault auto_home auto_retained auto_restored auto_state_pending wifi_connected utc_ready "
                "reauthorization_needed poll_busy".split())
+BOOLEANS.add("fleet_request_may_have_been_sent")
+BOOLEANS.add("last_failure_request_may_have_been_sent")
 INTEGERS = set("generation uptime_s lease_s override_s location_age_s next_poll_s last_success_uptime_s "
                "rssi_dbm control_max_gap_ms internal_heap_free internal_heap_min internal_heap_largest psram_free "
                "tesla_stack_min_bytes https_stack_min_bytes fleet_http_status "
                "fleet_received_utc_s location_monthly_cap".split())
+INTEGERS.update("fleet_elapsed_ms fleet_connect_ms fleet_connect_state fleet_bytes_written fleet_bytes_read fleet_last_io fleet_tls_error fleet_mbedtls_error fleet_verify_flags fleet_system_error".split())
+INTEGERS.update("network_recoveries last_network_recovery_uptime_s network_recovery_error".split())
+INTEGERS.update("last_failure_elapsed_ms last_failure_connect_state last_failure_tls_error last_failure_mbedtls_error last_failure_verify_flags last_failure_system_error last_failure_http_status last_failure_utc_s last_failure_bytes_written last_failure_bytes_read".split())
 NUMBERS = {"distance_m", "reported_distance_m", "estimated_location_usd"}
 COUNTS = {"attempts_this_boot", "reserved_today", "reserved_month"}
 

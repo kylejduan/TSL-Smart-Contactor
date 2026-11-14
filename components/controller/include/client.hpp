@@ -1,6 +1,34 @@
 #pragma once
 #include "reliability.hpp"
 namespace tsl {
+// Fixed labels and numeric transport progress only; never request bodies,
+// headers, credentials, host addresses or tokens.
+struct TransportDiagnostics {
+    const char* phase="none";
+    uint32_t elapsed_ms=0,connect_ms=0,bytes_written=0,bytes_read=0;
+    int connect_state=-1,last_io=0,tls_error=0,mbedtls_error=0,verify_flags=0,system_error=0;
+    bool request_may_have_been_sent=false;
+};
+// Repeated connection failures before any HTTP write may indicate stale local
+// DNS/station state. Never reset networking for a server response, ambiguous
+// token exchange, certificate failure, or a single transient failure.
+class TransportRecovery {
+public:
+    bool observe(Error,const TransportDiagnostics&,Ms now);
+    void clear_streak() {failures_=0;}
+    uint32_t attempts() const {return attempts_;}
+    uint32_t failures() const {return failures_;}
+private:
+    uint32_t failures_=0,attempts_=0;
+    Ms next_allowed_=0;
+};
+struct TransportFailure {
+    TransportDiagnostics transport{};
+    const char* endpoint="none";
+    const char* error="none";
+    int http_status=0;
+    int64_t received_utc_s=0;
+};
 struct FleetDiagnostics {
     const char* endpoint="none";
     const char* detail="none";
@@ -12,6 +40,10 @@ struct FleetDiagnostics {
     int64_t received_utc_s=0;
     VehicleMetadata vehicle_metadata{};
     double reported_distance_m=-1; // Diagnostic position, even if GPS time is invalid.
+    TransportDiagnostics transport{};
+    uint32_t network_recoveries=0,last_network_recovery_uptime_s=0;
+    int network_recovery_error=0;
+    TransportFailure last_failure{};
 };
 struct HttpResult {
     Error error=Error::None;
@@ -23,6 +55,7 @@ struct HttpResult {
     char transaction_id[129]={},response_date[30]={};
     int64_t received_utc_s=0;
     BodyBuffer body;
+    TransportDiagnostics transport{};
 };
 struct FleetIO {
     virtual ~FleetIO()=default;
@@ -45,7 +78,10 @@ public:
     bool reauthorization_needed() const {return journal_.needs_reauth();}
     uint32_t retry_s() const {return retry_;}
     const BudgetRecord& counts() const {return budget_.counts();}
-    void clear_diagnostics() {diagnostic_={};}
+    void clear_diagnostics() {
+        const auto failure=diagnostic_.last_failure;
+        diagnostic_={};diagnostic_.last_failure=failure;
+    }
     FleetDiagnostics diagnostics() const {
         auto d=diagnostic_;
         for(size_t i=0;i<3;++i)d.attempts_this_boot[i]=attempts_[i];

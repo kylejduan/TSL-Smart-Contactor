@@ -265,6 +265,16 @@ task. Thus the budgets are checks, not an exact wall-clock cancellation guarante
 Two SDK DNS slots are required: the final slot is reserved and remains unused with
 fallback disabled. Configuring only one slot prevents DHCP from installing a resolver.
 No request can keep the control task alive or renew a lease just by retrying.
+Three consecutive transport/timeouts in the connection phase, with proof that no
+HTTP write was attempted and no certificate/cryptographic error, request bounded
+station recovery. The worker queues a DNS-cache clear on lwIP's TCP/IP thread and
+disconnects the station; the existing reconnect task rejoins its saved profile.
+DHCP resolver settings, tokens, persistent AUTO state and spending counters are
+unchanged. Recovery is limited to one attempt per hour and is inhibited during
+provisioning, firmware updates, local faults and generation changes. Existing
+backoff and Retry-After still determine when the next Fleet request may run.
+Server replies, ambiguous token exchanges and invalid certificates do not trigger
+this reset. A network recovery never issues an output command or authorizes HOME.
 The control task keeps checking its existing monotonic lease after Wi-Fi loss,
 while new location evidence and TLS requests wait for a fresh SNTP sync after
 the next IP connection. DHCP address loss also clears readiness. An NTP-only

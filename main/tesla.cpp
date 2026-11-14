@@ -21,7 +21,8 @@ struct RuntimeIO : FleetIO {
 void worker(void* context) {
     auto& profile=*static_cast<const Profile*>(context);
     RuntimeIO io;FleetClient client(storage(),io,profile.client_id);
-    Scheduler scheduler;uint64_t sequence=0;
+    Scheduler scheduler;TransportRecovery recovery;uint64_t sequence=0;
+    uint32_t recovery_uptime_s=0;int recovery_error=0;
     auto initial=client.initialize();
     if(initial==Error::Storage)fail("tesla_journal_load");
     Ms last_success=0,auth_retry_after=0;Vehicle vehicle=Vehicle::Unknown;Error error=initial;
@@ -42,6 +43,7 @@ void worker(void* context) {
             error=client.reauthorization_needed() ? Error::Reauthorize : Error::None;
             last_success=0;
             client.clear_diagnostics();
+            recovery.clear_streak();
         }
         if(check_requested.exchange(false))scheduler.check_now(now_ms());
         if(!firmware_busy && !provisioning && !critical_fault && s.ready && !s.config.disabled) {
@@ -65,10 +67,19 @@ void worker(void* context) {
                     scheduler.finish(now_ms(),error,s.config.poll_s,client.retry_s(),esp_random());
                     auth_retry_after=error==Error::None ? 0 : scheduler.next();
                 }
+                if(io.current(s.generation) &&
+                   recovery.observe(error,client.diagnostics().transport,now_ms())) {
+                    recovery_uptime_s=uint32_t(now_ms()/1000);
+                    recovery_error=recover_station_network();
+                }
                 network_busy=false;
             }
         }
-        network_status(s.generation,vehicle,error,last_success,scheduler.next(),client.counts(),scheduler.paused(),client.diagnostics());
+        auto diagnostic=client.diagnostics();
+        diagnostic.network_recoveries=recovery.attempts();
+        diagnostic.last_network_recovery_uptime_s=recovery_uptime_s;
+        diagnostic.network_recovery_error=recovery_error;
+        network_status(s.generation,vehicle,error,last_success,scheduler.next(),client.counts(),scheduler.paused(),diagnostic);
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }

@@ -229,6 +229,10 @@
     ]);
     facts('fleet-status', [
       ['Endpoint / HTTP status', s.fleet_endpoint + ' / ' + s.fleet_http_status], ['Parser detail', s.fleet_detail],
+      ['Transport phase / elapsed', (s.fleet_phase || 'unavailable') + ' / ' + (s.fleet_elapsed_ms ?? '?') + ' ms'],
+      ['TLS / system error', (s.fleet_tls_error ?? '?') + ' / ' + (s.fleet_mbedtls_error ?? '?') + ' / ' + (s.fleet_system_error ?? '?')],
+      ['Network recovery attempts / result', (s.network_recoveries ?? '?') + ' / ' + (s.network_recovery_error ?? '?')],
+      ['Last transport failure (this boot)', (s.last_failure_endpoint || 'none') + ' / ' + (s.last_failure_phase || 'none') + ' / ' + (s.last_failure_error || 'none')],
       ['GPS source token', s.gps_source_text || 'Unavailable'], ['Report timestamp (not GPS fix time)', s.report_timestamp_text || 'Unavailable'],
       ['HTTP Date', s.fleet_date || 'Unavailable'], ['Request ID', s.fleet_txid || 'Unavailable'],
       ['API version (not vehicle firmware)', s.api_version < 0 ? 'Unavailable' : s.api_version]
@@ -383,7 +387,8 @@
     // Deliberate allowlist: never spread status/settings into a support report.
     const keys = ['mode', 'commissioned', 'dry_run', 'position_basis', 'outage_policy', 'auto_retained', 'auto_restored', 'auto_state_pending', 'gpio_command', 'reason', 'auto_home', 'lease_s', 'override_s', 'vehicle',
       'wifi_connected', 'utc_ready', 'uptime_s', 'error', 'reauthorization_needed', 'poll_busy', 'fleet_endpoint', 'fleet_http_status',
-      'fleet_detail', 'gps_source_text', 'fleet_txid', 'fleet_date', 'fleet_received_utc_s', 'report_timestamp_text', 'api_version',
+      'fleet_detail', 'fleet_phase', 'fleet_elapsed_ms', 'fleet_connect_ms', 'fleet_connect_state', 'fleet_bytes_written', 'fleet_bytes_read', 'fleet_last_io', 'fleet_tls_error', 'fleet_mbedtls_error', 'fleet_verify_flags', 'fleet_system_error', 'fleet_request_may_have_been_sent', 'network_recoveries', 'last_network_recovery_uptime_s', 'network_recovery_error', 'gps_source_text', 'fleet_txid', 'fleet_date', 'fleet_received_utc_s', 'report_timestamp_text', 'api_version',
+      'last_failure_endpoint', 'last_failure_error', 'last_failure_phase', 'last_failure_elapsed_ms', 'last_failure_connect_state', 'last_failure_tls_error', 'last_failure_mbedtls_error', 'last_failure_verify_flags', 'last_failure_system_error', 'last_failure_http_status', 'last_failure_utc_s', 'last_failure_bytes_written', 'last_failure_bytes_read', 'last_failure_request_may_have_been_sent',
       'attempts_this_boot', 'reserved_today', 'reserved_month', 'location_monthly_cap', 'ready', 'fault', 'fault_source', 'control_max_gap_ms', 'internal_heap_free', 'internal_heap_min', 'internal_heap_largest', 'psram_free', 'tesla_stack_min_bytes', 'https_stack_min_bytes', 'firmware_version', 'sdk_version'];
     const report = { note: 'Redacted controller snapshot; no VIN, coordinates, passwords, tokens, cookies or client ID.', snapshot_age_s: Math.floor(elapsed()), status: {} };
     for (const key of keys) report.status[key] = state[key];
